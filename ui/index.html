@@ -15,7 +15,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 32px;
+    gap: 24px;
     user-select: none;
   }
   .logo {
@@ -61,6 +61,21 @@
     animation: none;
     width: 100%;
   }
+  .logbox {
+    width: 480px;
+    max-width: 90vw;
+    height: 120px;
+    background: #060606;
+    border: 1px solid #1a7a1a33;
+    overflow-y: auto;
+    padding: 8px 10px;
+    font-size: 0.7rem;
+    color: #0d8c0d;
+    line-height: 1.6;
+    scroll-behavior: smooth;
+  }
+  .logbox .line { white-space: pre-wrap; word-break: break-all; }
+  .logbox .line::before { content: '> '; color: #1a5a1a; }
   .error { color: #ff3333; }
 </style>
 </head>
@@ -69,8 +84,11 @@
 <div class="subtitle">Radio Noise To Come</div>
 <div class="status" id="status">Initialisation…</div>
 <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+<div class="logbox" id="logbox"></div>
 
 <script>
+let lastLogCount = 0;
+
 function waitTauri(fn, tries) {
   tries = tries || 0;
   const T = window.__TAURI_INTERNALS__;
@@ -79,7 +97,28 @@ function waitTauri(fn, tries) {
   setTimeout(() => waitTauri(fn, tries + 1), 50);
 }
 
+function appendLogs(lines) {
+  if (!lines || lines.length === 0) return;
+  const box = document.getElementById('logbox');
+  const newLines = lines.slice(lastLogCount);
+  newLines.forEach(line => {
+    const div = document.createElement('div');
+    div.className = 'line';
+    div.textContent = line;
+    box.appendChild(div);
+  });
+  lastLogCount = lines.length;
+  box.scrollTop = box.scrollHeight;
+}
+
+function pollLogs(invoke) {
+  invoke('get_log').then(lines => {
+    appendLogs(lines);
+  }).catch(() => {});
+}
+
 function poll(invoke) {
+  pollLogs(invoke);
   invoke('get_tor_status').then(s => {
     document.getElementById('status').textContent = s.message;
     if (s.ready) {

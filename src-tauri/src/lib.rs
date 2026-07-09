@@ -4,7 +4,11 @@ use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 
 const ONION_URL: &str =
-    "http://e4a5qysp4kwollmwjnoanmk4qbvuowts4awaqjeeylocjc62i5wa2tyd.onion/";
+    "http://i7gjlifxnb5afxo2p4sst64k72hlxdi5qszlkgimgnshczkanvtnzlqd.onion/";
+const ONION_HOST: &str =
+    "i7gjlifxnb5afxo2p4sst64k72hlxdi5qszlkgimgnshczkanvtnzlqd.onion";
+#[cfg(target_os = "android")]
+const LOCAL_PROXY_URL: &str = "http://127.0.0.1:8181/";
 
 #[derive(Clone, serde::Serialize)]
 struct TorEvent {
@@ -12,17 +16,25 @@ struct TorEvent {
     message: String,
 }
 
-// État partagé entre le backend Tor et la commande frontend_ready
 struct AppState {
     tor_event: Option<TorEvent>,
     frontend_ready: bool,
+    logs: Vec<String>,
 }
 
 type SharedState = Arc<Mutex<AppState>>;
 
+fn push_log(state: &SharedState, msg: &str) {
+    eprintln!("[RN2C] {}", msg);
+    state.lock().unwrap().logs.push(msg.to_string());
+}
+
 #[tauri::command]
 fn get_onion_url() -> &'static str {
-    ONION_URL
+    #[cfg(target_os = "android")]
+    return LOCAL_PROXY_URL;
+    #[cfg(not(target_os = "android"))]
+    return ONION_URL;
 }
 
 #[tauri::command]
@@ -32,6 +44,11 @@ fn get_tor_status(state: tauri::State<'_, SharedState>) -> TorEvent {
         ready: false,
         message: "Connexion au réseau Tor…".to_string(),
     })
+}
+
+#[tauri::command]
+fn get_log(state: tauri::State<'_, SharedState>) -> Vec<String> {
+    state.lock().unwrap().logs.clone()
 }
 
 #[tauri::command]
@@ -47,17 +64,21 @@ fn frontend_ready(
     }
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_unsafe)]
     unsafe {
         std::env::set_var("ALL_PROXY", "socks5h://127.0.0.1:19150");
         std::env::set_var("all_proxy", "socks5h://127.0.0.1:19150");
         std::env::set_var("NO_PROXY", "localhost,127.0.0.1");
+        #[cfg(target_os = "android")]
+        std::env::set_var("ARTI_FS_DISABLE_PERMISSION_CHECKS", "true");
     }
 
     let shared: SharedState = Arc::new(Mutex::new(AppState {
         tor_event: None,
         frontend_ready: false,
+        logs: Vec::new(),
     }));
 
     tauri::Builder::default()
@@ -67,49 +88,75 @@ pub fn run() {
             let state = shared.clone();
 
             tauri::async_runtime::spawn(async move {
+                push_log(&state, "Démarrage d'Arti…");
+
                 let pending = TorEvent {
                     ready: false,
                     message: "Connexion au réseau Tor…".to_string(),
                 };
                 emit_or_store(&handle, &state, pending);
 
-                match tor_proxy::bootstrap().await {
+                push_log(&state, "Bootstrap Tor en cours (peut prendre ~15s)…");
+
+                let data_dir = handle.path().app_data_dir().expect("app_data_dir");
+                match tor_proxy::bootstrap(data_dir).await {
                     Ok(tor_client) => {
-                        // Laisser les circuits se stabiliser
+                        push_log(&state, "Tor bootstrappé — stabilisation des circuits…");
                         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
                         let ev = TorEvent {
                             ready: true,
                             message: "Tor connecté".to_string(),
                         };
                         emit_or_store(&handle, &state, ev);
+                        push_log(&state, "Ouverture de la fenêtre RN2C…");
 
-                        // Ouvrir la fenêtre principale avec le proxy Tor, fermer le splash
-                        if let Ok(w) = tauri::WebviewWindowBuilder::new(
-                            &handle,
-                            "rn2c",
-                            tauri::WebviewUrl::External(ONION_URL.parse().unwrap()),
-                        )
-                        .title("RN2C")
-                        .proxy_url("socks5://127.0.0.1:19150".parse().unwrap())
-                        .inner_size(1280.0, 820.0)
-                        .center()
-                        .build()
+                        // Android : reverse proxy HTTP local (proxy_url non supporté)
+                        // Desktop : proxy SOCKS5 + proxy_url sur la webview
+                        #[cfg(target_os = "android")]
                         {
-                            let _ = w; // fenêtre créée
-                        }
-                        if let Some(splash) = handle.get_webview_window("main") {
-                            let _ = splash.close();
+                            // Sur Android : la splash navigue via get_onion_url() → 127.0.0.1:8181
+                            // Pas de deuxième fenêtre — on lance juste le reverse proxy
+                            push_log(&state, "Reverse proxy HTTP actif sur 127.0.0.1:8181");
+                            if let Err(e) = tor_proxy::run_http_reverse_proxy(
+                                tor_client, ONION_HOST, 80, 8181,
+                            ).await {
+                                push_log(&state, &format!("Proxy arrêté : {}", e));
+                            }
                         }
 
-                        if let Err(e) = tor_proxy::run_proxy(tor_client, 19150).await {
-                            eprintln!("[Tor] proxy arrêté : {}", e);
+                        #[cfg(not(target_os = "android"))]
+                        {
+                            let builder = tauri::WebviewWindowBuilder::new(
+                                &handle,
+                                "rn2c",
+                                tauri::WebviewUrl::External(ONION_URL.parse().unwrap()),
+                            )
+                            .title("RN2C")
+                            .proxy_url("socks5://127.0.0.1:19150".parse().unwrap());
+
+                            #[cfg(desktop)]
+                            let builder = builder.inner_size(1280.0, 820.0).center();
+
+                            if let Ok(_w) = builder.build() {}
+
+                            #[cfg(desktop)]
+                            if let Some(splash) = handle.get_webview_window("main") {
+                                let _ = splash.close();
+                            }
+
+                            push_log(&state, "Proxy SOCKS5 actif sur 127.0.0.1:19150");
+                            if let Err(e) = tor_proxy::run_proxy(tor_client, 19150).await {
+                                push_log(&state, &format!("Proxy arrêté : {}", e));
+                            }
                         }
                     }
                     Err(e) => {
-                        eprintln!("[Tor] bootstrap échoué : {}", e);
+                        let msg = format!("Erreur Tor : {}", e);
+                        push_log(&state, &msg);
                         let ev = TorEvent {
                             ready: false,
-                            message: format!("Erreur Tor : {}", e),
+                            message: msg,
                         };
                         emit_or_store(&handle, &state, ev);
                     }
@@ -118,7 +165,12 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_onion_url, get_tor_status, frontend_ready])
+        .invoke_handler(tauri::generate_handler![
+            get_onion_url,
+            get_tor_status,
+            get_log,
+            frontend_ready
+        ])
         .run(tauri::generate_context!())
         .expect("erreur lors du lancement de RN2C");
 }
