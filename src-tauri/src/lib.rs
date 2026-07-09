@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 
 const ONION_URL: &str =
-    "http://e4a5qysp4kwollmwjnoanmk4qbvuowts4awaqjeeylocjc62i5wa2tyd.onion/";
+    "http://i7gjlifxnb5afxo2p4sst64k72hlxdi5qszlkgimgnshczkanvtnzlqd.onion/";
 const ONION_HOST: &str =
-    "e4a5qysp4kwollmwjnoanmk4qbvuowts4awaqjeeylocjc62i5wa2tyd.onion";
+    "i7gjlifxnb5afxo2p4sst64k72hlxdi5qszlkgimgnshczkanvtnzlqd.onion";
 #[cfg(target_os = "android")]
 const LOCAL_PROXY_URL: &str = "http://127.0.0.1:8181/";
 
