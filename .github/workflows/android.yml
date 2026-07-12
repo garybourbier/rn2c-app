@@ -1,9 +1,8 @@
-name: Android build
+name: Android build (dev)
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [master]
 
 jobs:
   build:
@@ -35,6 +34,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin
             src-tauri/target
           key: android-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: android-cargo-
@@ -50,6 +50,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: rn2c-android-${{ github.ref_name }}
+          name: rn2c-android-dev-${{ github.sha }}
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: warn
