@@ -140,6 +140,11 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
 
+      - name: Init Android project
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: cargo tauri android init
+
       - name: Build Android APK
         env:
           NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
