@@ -17,11 +17,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Android SDK + NDK
+      - name: Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK 26
-        run: sdkmanager "ndk;26.3.11579264" "build-tools;34.0.0" "platforms;android-34"
+      - name: Install NDK 26 + Set NDK_HOME
+        run: |
+          sdkmanager "ndk;26.3.11579264" "build-tools;34.0.0" "platforms;android-34"
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/26.3.11579264" >> $GITHUB_ENV
 
       - name: Rust toolchain + targets Android
         uses: dtolnay/rust-toolchain@stable
@@ -40,11 +42,12 @@ jobs:
           restore-keys: android-cargo-
 
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
+        run: cargo install tauri-cli --version "^2" --locked --force
+
+      - name: Init projet Android
+        run: cargo tauri android init
 
       - name: Build Android APK (non signé)
-        env:
-          NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: cargo tauri android build --apk
 
       - name: Upload APK
