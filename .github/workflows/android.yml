@@ -51,31 +51,24 @@ jobs:
         run: |
           MANIFEST=src-tauri/gen/android/app/src/main/AndroidManifest.xml
           sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />|' "$MANIFEST"
-      - name: Patch MainActivity — setPadding WebView nav bar
+      - name: Patch MainActivity — content padding nav bar
         run: |
           cat > src-tauri/gen/android/app/src/main/java/rn2c/radio_noise_to_come/MainActivity.kt << 'KOTLIN'
           package rn2c.radio_noise_to_come
           import android.os.Bundle
-          import android.webkit.WebView
           import androidx.activity.enableEdgeToEdge
           import androidx.core.view.ViewCompat
           import androidx.core.view.WindowInsetsCompat
           class MainActivity : TauriActivity() {
-              private var webViewRef: WebView? = null
               override fun onCreate(savedInstanceState: Bundle?) {
                   enableEdgeToEdge()
                   super.onCreate(savedInstanceState)
-                  ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { view, insets ->
-                      val h = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-                      webViewRef?.post { webViewRef?.setPadding(0, 0, 0, h) }
-                      ViewCompat.onApplyWindowInsets(view, insets)
+                  val root = findViewById<android.view.View>(android.R.id.content)
+                  ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+                      val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+                      v.setPadding(0, 0, 0, nav.bottom)
+                      insets
                   }
-              }
-              override fun onWebViewCreate(webView: WebView) {
-                  webViewRef = webView
-                  ViewCompat.getRootWindowInsets(window.decorView)
-                      ?.getInsets(WindowInsetsCompat.Type.navigationBars())
-                      ?.let { webView.setPadding(0, 0, 0, it.bottom) }
               }
           }
           KOTLIN
