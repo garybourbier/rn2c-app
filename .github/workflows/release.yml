@@ -116,10 +116,42 @@ jobs:
         run: |
           MANIFEST=src-tauri/gen/android/app/src/main/AndroidManifest.xml
           sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />|' "$MANIFEST"
-      - name: Patch MainActivity — retire enableEdgeToEdge (barre nav Android)
+      - name: Patch MainActivity — injecter hauteur nav bar dans WebView
         run: |
-          MAIN=src-tauri/gen/android/app/src/main/java/rn2c/radio_noise_to_come/MainActivity.kt
-          sed -i 's/enableEdgeToEdge()//' "$MAIN"
+          cat > src-tauri/gen/android/app/src/main/java/rn2c/radio_noise_to_come/MainActivity.kt << 'KOTLIN'
+          package rn2c.radio_noise_to_come
+          import android.os.Bundle
+          import android.webkit.WebView
+          import androidx.activity.enableEdgeToEdge
+          import androidx.core.view.ViewCompat
+          import androidx.core.view.WindowInsetsCompat
+          import androidx.webkit.WebViewCompat
+          import androidx.webkit.WebViewFeature
+          class MainActivity : TauriActivity() {
+              private var navBarPx: Int = 0
+              private var webViewRef: WebView? = null
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  enableEdgeToEdge()
+                  super.onCreate(savedInstanceState)
+                  ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { view, insets ->
+                      val nb = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+                      if (nb != navBarPx) { navBarPx = nb; injectNavBar() }
+                      ViewCompat.onApplyWindowInsets(view, insets)
+                  }
+              }
+              override fun onWebViewCreate(webView: WebView) {
+                  webViewRef = webView
+                  injectNavBar()
+              }
+              private fun injectNavBar() {
+                  val wv = webViewRef ?: return
+                  val script = "document.documentElement.style.setProperty('--safe-bottom','${navBarPx}px');"
+                  wv.post { wv.evaluateJavascript(script, null) }
+                  if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
+                      WebViewCompat.addDocumentStartJavaScript(wv, script, setOf("*"))
+              }
+          }
+          KOTLIN
       - name: Build Android APK
         run: cargo tauri android build --apk
       - name: Signer APK
