@@ -116,38 +116,31 @@ jobs:
         run: |
           MANIFEST=src-tauri/gen/android/app/src/main/AndroidManifest.xml
           sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />|' "$MANIFEST"
-      - name: Patch MainActivity — JavascriptInterface nav bar
+      - name: Patch MainActivity — setPadding WebView nav bar
         run: |
           cat > src-tauri/gen/android/app/src/main/java/rn2c/radio_noise_to_come/MainActivity.kt << 'KOTLIN'
           package rn2c.radio_noise_to_come
           import android.os.Bundle
-          import android.webkit.JavascriptInterface
           import android.webkit.WebView
           import androidx.activity.enableEdgeToEdge
           import androidx.core.view.ViewCompat
           import androidx.core.view.WindowInsetsCompat
-          import androidx.webkit.WebViewCompat
-          import androidx.webkit.WebViewFeature
-          class NavBarBridge {
-              @Volatile var heightPx: Int = 0
-              @JavascriptInterface fun getHeight(): Int = heightPx
-          }
           class MainActivity : TauriActivity() {
-              private val navBridge = NavBarBridge()
+              private var webViewRef: WebView? = null
               override fun onCreate(savedInstanceState: Bundle?) {
                   enableEdgeToEdge()
                   super.onCreate(savedInstanceState)
                   ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { view, insets ->
-                      navBridge.heightPx = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+                      val h = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+                      webViewRef?.post { webViewRef?.setPadding(0, 0, 0, h) }
                       ViewCompat.onApplyWindowInsets(view, insets)
                   }
               }
               override fun onWebViewCreate(webView: WebView) {
-                  webView.addJavascriptInterface(navBridge, "RN2CBridge")
-                  val script = "(function(){var h=window.RN2CBridge?window.RN2CBridge.getHeight():0;document.documentElement.style.setProperty('--safe-bottom',h+'px');})();"
-                  if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
-                      WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
-                  webView.post { webView.evaluateJavascript(script, null) }
+                  webViewRef = webView
+                  ViewCompat.getRootWindowInsets(window.decorView)
+                      ?.getInsets(WindowInsetsCompat.Type.navigationBars())
+                      ?.let { webView.setPadding(0, 0, 0, it.bottom) }
               }
           }
           KOTLIN
