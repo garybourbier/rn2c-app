@@ -116,39 +116,38 @@ jobs:
         run: |
           MANIFEST=src-tauri/gen/android/app/src/main/AndroidManifest.xml
           sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />|' "$MANIFEST"
-      - name: Patch MainActivity — injecter hauteur nav bar dans WebView
+      - name: Patch MainActivity — JavascriptInterface nav bar
         run: |
           cat > src-tauri/gen/android/app/src/main/java/rn2c/radio_noise_to_come/MainActivity.kt << 'KOTLIN'
           package rn2c.radio_noise_to_come
           import android.os.Bundle
+          import android.webkit.JavascriptInterface
           import android.webkit.WebView
           import androidx.activity.enableEdgeToEdge
           import androidx.core.view.ViewCompat
           import androidx.core.view.WindowInsetsCompat
           import androidx.webkit.WebViewCompat
           import androidx.webkit.WebViewFeature
+          class NavBarBridge {
+              @Volatile var heightPx: Int = 0
+              @JavascriptInterface fun getHeight(): Int = heightPx
+          }
           class MainActivity : TauriActivity() {
-              private var navBarPx: Int = 0
-              private var webViewRef: WebView? = null
+              private val navBridge = NavBarBridge()
               override fun onCreate(savedInstanceState: Bundle?) {
                   enableEdgeToEdge()
                   super.onCreate(savedInstanceState)
                   ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { view, insets ->
-                      val nb = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-                      if (nb != navBarPx) { navBarPx = nb; injectNavBar() }
+                      navBridge.heightPx = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
                       ViewCompat.onApplyWindowInsets(view, insets)
                   }
               }
               override fun onWebViewCreate(webView: WebView) {
-                  webViewRef = webView
-                  injectNavBar()
-              }
-              private fun injectNavBar() {
-                  val wv = webViewRef ?: return
-                  val script = "document.documentElement.style.setProperty('--safe-bottom','${navBarPx}px');"
-                  wv.post { wv.evaluateJavascript(script, null) }
+                  webView.addJavascriptInterface(navBridge, "RN2CBridge")
+                  val script = "(function(){var h=window.RN2CBridge?window.RN2CBridge.getHeight():0;document.documentElement.style.setProperty('--safe-bottom',h+'px');})();"
                   if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
-                      WebViewCompat.addDocumentStartJavaScript(wv, script, setOf("*"))
+                      WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
+                  webView.post { webView.evaluateJavascript(script, null) }
               }
           }
           KOTLIN
