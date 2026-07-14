@@ -112,6 +112,10 @@ jobs:
         run: cargo install tauri-cli --version "^2" --locked --force
       - name: Init projet Android
         run: cargo tauri android init
+      - name: Patch manifest — permissions audio
+        run: |
+          MANIFEST=src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />|' "$MANIFEST"
       - name: Build Android APK
         run: cargo tauri android build --apk
       - name: Signer APK
