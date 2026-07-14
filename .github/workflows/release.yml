@@ -114,10 +114,24 @@ jobs:
         run: cargo tauri android init
       - name: Build Android APK
         run: cargo tauri android build --apk
+      - name: Signer APK
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          STORE_PASS: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > /tmp/release.keystore
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -1)
+          VERSION=$(grep '^version' src-tauri/Cargo.toml | sed 's/.*"\(.*\)"/\1/')
+          $ANDROID_HOME/build-tools/34.0.0/apksigner sign \
+            --ks /tmp/release.keystore --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$STORE_PASS" --key-pass "pass:$KEY_PASS" \
+            --out "rn2c-v${VERSION}-signed.apk" "$APK"
       - uses: actions/upload-artifact@v4
         with:
           name: android-build
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: rn2c-v*-signed.apk
 
   release:
     name: Créer la release
