@@ -51,6 +51,10 @@ jobs:
         run: |
           MANIFEST=src-tauri/gen/android/app/src/main/AndroidManifest.xml
           sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />|' "$MANIFEST"
+      - name: Patch MainActivity — retire enableEdgeToEdge (barre nav Android)
+        run: |
+          MAIN=src-tauri/gen/android/app/src/main/java/rn2c/radio_noise_to_come/MainActivity.kt
+          sed -i 's/enableEdgeToEdge()//' "$MAIN"
 
       - name: Build Android APK (non signé)
         run: cargo tauri android build --apk
