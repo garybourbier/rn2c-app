@@ -140,7 +140,7 @@ jobs:
         run: |
           echo "$KEYSTORE_B64" | base64 -d > /tmp/release.keystore
           APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -1)
-          VERSION=$(grep '^version' src-tauri/Cargo.toml | sed 's/.*"\(.*\)"/\1/')
+          VERSION=${GITHUB_REF_NAME#v}
           $ANDROID_HOME/build-tools/34.0.0/apksigner sign \
             --ks /tmp/release.keystore --ks-key-alias "$KEY_ALIAS" \
             --ks-pass "pass:$STORE_PASS" --key-pass "pass:$KEY_PASS" \
