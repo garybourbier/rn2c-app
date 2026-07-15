@@ -1,6 +1,6 @@
 [package]
 name = "rn2c"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 
 [lib]
@@ -20,6 +20,7 @@ tor-rtcompat = { version = "0.25", default-features = false, features = ["tokio"
 anyhow = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json", "socks"] }
 
 [profile.release]
 panic = "abort"

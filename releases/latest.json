@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "pub_date": "2026-07-15T00:00:00Z",
+  "notes": "Vérification automatique de mise à jour au lancement + version portable Windows (sans installeur).",
+  "downloads": {
+    "linux-appimage": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.0/RN2C_0.2.0_amd64.AppImage",
+    "linux-deb": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.0/RN2C_0.2.0_amd64.deb",
+    "windows-nsis": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.0/RN2C_0.2.0_x64-setup.exe",
+    "windows-portable": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.0/rn2c-v0.2.0-portable-win64.zip",
+    "android-apk": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.0/rn2c-v0.2.0-signed.apk",
+    "macos-dmg": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.0/RN2C_0.2.0_x64.dmg"
+  }
+}

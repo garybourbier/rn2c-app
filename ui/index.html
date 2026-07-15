@@ -77,6 +77,79 @@
   .logbox .line { white-space: pre-wrap; word-break: break-all; }
   .logbox .line::before { content: '> '; color: #1a5a1a; }
   .error { color: #ff3333; }
+
+  /* Update banner */
+  #update-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: #0a0a0aee;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+  #update-overlay.visible { display: flex; }
+  .update-box {
+    border: 1px solid #1aff1a55;
+    background: #0d0d0d;
+    padding: 28px 32px;
+    max-width: 480px;
+    width: 90vw;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .update-title {
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    color: #0d5c0d;
+    text-transform: uppercase;
+  }
+  .update-ver {
+    font-size: 1.4rem;
+    font-weight: bold;
+    color: #1aff1a;
+    text-shadow: 0 0 12px #1aff1a55;
+  }
+  .update-notes {
+    font-size: 0.75rem;
+    color: #1aff1a99;
+    line-height: 1.6;
+  }
+  .update-links {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.72rem;
+  }
+  .update-links a {
+    color: #1aff1a;
+    text-decoration: none;
+    letter-spacing: 0.05em;
+  }
+  .update-links a:hover { text-shadow: 0 0 8px #1aff1a; }
+  .update-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 4px;
+  }
+  .update-skip {
+    font-size: 0.7rem;
+    color: #0d5c0d;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    border: none;
+    background: none;
+    color: #1aff1a55;
+    font-family: inherit;
+  }
+  .update-skip:hover { color: #1aff1a; }
+  .update-countdown {
+    font-size: 0.65rem;
+    color: #0d5c0d;
+    letter-spacing: 0.05em;
+  }
 </style>
 </head>
 <body>
@@ -85,6 +158,19 @@
 <div class="status" id="status">Initialisation…</div>
 <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
 <div class="logbox" id="logbox"></div>
+
+<div id="update-overlay">
+  <div class="update-box">
+    <div class="update-title">Mise à jour disponible</div>
+    <div class="update-ver" id="upd-ver"></div>
+    <div class="update-notes" id="upd-notes"></div>
+    <div class="update-links" id="upd-links"></div>
+    <div class="update-footer">
+      <button class="update-skip" id="upd-skip">[ Continuer sans mettre à jour ]</button>
+      <span class="update-countdown" id="upd-cd"></span>
+    </div>
+  </div>
+</div>
 
 <script>
 let lastLogCount = 0;
@@ -112,9 +198,7 @@ function appendLogs(lines) {
 }
 
 function pollLogs(invoke) {
-  invoke('get_log').then(lines => {
-    appendLogs(lines);
-  }).catch(() => {});
+  invoke('get_log').then(lines => { appendLogs(lines); }).catch(() => {});
 }
 
 function poll(invoke) {
@@ -123,7 +207,7 @@ function poll(invoke) {
     document.getElementById('status').textContent = s.message;
     if (s.ready) {
       document.getElementById('progress').classList.add('done');
-      setTimeout(() => invoke('get_onion_url').then(url => { window.location.href = url; }), 400);
+      checkAndOpen(invoke);
     } else {
       setTimeout(() => poll(invoke), 600);
     }
@@ -131,6 +215,83 @@ function poll(invoke) {
     document.getElementById('status').textContent = 'Erreur: ' + e;
     setTimeout(() => poll(invoke), 1000);
   });
+}
+
+async function checkAndOpen(invoke) {
+  document.getElementById('status').textContent = 'Vérification des mises à jour…';
+  try {
+    const info = await invoke('check_update');
+    if (info) {
+      showUpdateBanner(info, () => openApp(invoke));
+      return;
+    }
+  } catch (_) {}
+  openApp(invoke);
+}
+
+function openApp(invoke) {
+  invoke('get_onion_url').then(url => {
+    if (url.includes('127.0.0.1')) {
+      // Android : navigation directe vers le proxy local
+      window.location.href = url;
+    } else {
+      // Desktop : Rust ouvre la fenêtre RN2C et ferme la splash
+      invoke('open_rn2c_window');
+    }
+  }).catch(() => {
+    invoke('open_rn2c_window');
+  });
+}
+
+function showUpdateBanner(info, onDismiss) {
+  document.getElementById('upd-ver').textContent = 'v' + info.version;
+  document.getElementById('upd-notes').textContent = info.notes || '';
+
+  const linksEl = document.getElementById('upd-links');
+  linksEl.innerHTML = '';
+  const labels = {
+    'linux-appimage': 'Linux .AppImage',
+    'linux-deb':      'Linux .deb',
+    'windows-nsis':   'Windows installeur (.exe)',
+    'windows-portable': 'Windows portable (.zip)',
+    'android-apk':    'Android .apk',
+    'macos-dmg':      'macOS .dmg',
+  };
+  const dl = info.downloads || {};
+  Object.entries(labels).forEach(([key, label]) => {
+    if (dl[key]) {
+      const a = document.createElement('a');
+      a.href = dl[key];
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = '[> ' + label + ']';
+      linksEl.appendChild(a);
+    }
+  });
+
+  const overlay = document.getElementById('update-overlay');
+  overlay.classList.add('visible');
+
+  let seconds = 12;
+  const cdEl = document.getElementById('upd-cd');
+  cdEl.textContent = 'Auto-skip dans ' + seconds + 's';
+  const timer = setInterval(() => {
+    seconds--;
+    if (seconds <= 0) {
+      clearInterval(timer);
+      dismiss();
+    } else {
+      cdEl.textContent = 'Auto-skip dans ' + seconds + 's';
+    }
+  }, 1000);
+
+  function dismiss() {
+    clearInterval(timer);
+    overlay.classList.remove('visible');
+    onDismiss();
+  }
+
+  document.getElementById('upd-skip').addEventListener('click', dismiss, { once: true });
 }
 
 waitTauri(poll);

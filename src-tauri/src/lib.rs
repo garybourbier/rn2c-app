@@ -10,10 +10,20 @@ const ONION_HOST: &str =
 #[cfg(target_os = "android")]
 const LOCAL_PROXY_URL: &str = "http://127.0.0.1:8181/";
 
+const LATEST_JSON_URL: &str =
+    "https://raw.githubusercontent.com/garybourbier/rn2c-app/main/releases/latest.json";
+
 #[derive(Clone, serde::Serialize)]
 struct TorEvent {
     ready: bool,
     message: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct UpdateInfo {
+    version: String,
+    notes: String,
+    downloads: serde_json::Value,
 }
 
 struct AppState {
@@ -35,6 +45,11 @@ fn get_onion_url() -> &'static str {
     return LOCAL_PROXY_URL;
     #[cfg(not(target_os = "android"))]
     return ONION_URL;
+}
+
+#[tauri::command]
+fn get_app_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
 }
 
 #[tauri::command]
@@ -61,6 +76,69 @@ fn frontend_ready(
     if let Some(ev) = s.tor_event.clone() {
         drop(s);
         app.emit("tor-status", ev).ok();
+    }
+}
+
+#[tauri::command]
+async fn check_update() -> Option<UpdateInfo> {
+    if cfg!(target_os = "android") {
+        return None;
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .ok()?;
+    let resp = client.get(LATEST_JSON_URL).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let info: serde_json::Value = resp.json().await.ok()?;
+    let latest = info["version"].as_str()?;
+    if is_newer_version(latest, env!("CARGO_PKG_VERSION")) {
+        Some(UpdateInfo {
+            version: latest.to_string(),
+            notes: info["notes"].as_str().unwrap_or("").to_string(),
+            downloads: info["downloads"].clone(),
+        })
+    } else {
+        None
+    }
+}
+
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    let parse = |v: &str| -> Vec<u32> {
+        v.split('.').filter_map(|s| s.parse().ok()).collect()
+    };
+    let l = parse(latest);
+    let c = parse(current);
+    for i in 0..l.len().min(c.len()) {
+        if l[i] > c[i] { return true; }
+        if l[i] < c[i] { return false; }
+    }
+    l.len() > c.len()
+}
+
+#[tauri::command]
+fn open_rn2c_window(app: tauri::AppHandle) {
+    #[cfg(not(target_os = "android"))]
+    {
+        let builder = tauri::WebviewWindowBuilder::new(
+            &app,
+            "rn2c",
+            tauri::WebviewUrl::External(ONION_URL.parse().unwrap()),
+        )
+        .title("RN2C")
+        .proxy_url("socks5://127.0.0.1:19150".parse().unwrap());
+
+        #[cfg(desktop)]
+        let builder = builder.inner_size(1280.0, 820.0).center();
+
+        if let Ok(_w) = builder.build() {}
+
+        #[cfg(desktop)]
+        if let Some(splash) = app.get_webview_window("main") {
+            let _ = splash.close();
+        }
     }
 }
 
@@ -104,52 +182,37 @@ pub fn run() {
                         push_log(&state, "Tor bootstrappé — stabilisation des circuits…");
                         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
+                        // Démarrage du proxy en tâche de fond
+                        #[cfg(not(target_os = "android"))]
+                        {
+                            let tc = tor_client.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) = tor_proxy::run_proxy(tc, 19150).await {
+                                    eprintln!("[Tor] proxy arrêté : {}", e);
+                                }
+                            });
+                        }
+                        #[cfg(target_os = "android")]
+                        {
+                            let tc = tor_client.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) = tor_proxy::run_http_reverse_proxy(
+                                    tc, ONION_HOST, 80, 8181,
+                                ).await {
+                                    eprintln!("[Tor] proxy android arrêté : {}", e);
+                                }
+                            });
+                        }
+
+                        // Laisse le proxy binder avant de notifier le frontend
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
                         let ev = TorEvent {
                             ready: true,
                             message: "Tor connecté".to_string(),
                         };
                         emit_or_store(&handle, &state, ev);
-                        push_log(&state, "Ouverture de la fenêtre RN2C…");
-
-                        // Android : reverse proxy HTTP local (proxy_url non supporté)
-                        // Desktop : proxy SOCKS5 + proxy_url sur la webview
-                        #[cfg(target_os = "android")]
-                        {
-                            // Sur Android : la splash navigue via get_onion_url() → 127.0.0.1:8181
-                            // Pas de deuxième fenêtre — on lance juste le reverse proxy
-                            push_log(&state, "Reverse proxy HTTP actif sur 127.0.0.1:8181");
-                            if let Err(e) = tor_proxy::run_http_reverse_proxy(
-                                tor_client, ONION_HOST, 80, 8181,
-                            ).await {
-                                push_log(&state, &format!("Proxy arrêté : {}", e));
-                            }
-                        }
-
-                        #[cfg(not(target_os = "android"))]
-                        {
-                            let builder = tauri::WebviewWindowBuilder::new(
-                                &handle,
-                                "rn2c",
-                                tauri::WebviewUrl::External(ONION_URL.parse().unwrap()),
-                            )
-                            .title("RN2C")
-                            .proxy_url("socks5://127.0.0.1:19150".parse().unwrap());
-
-                            #[cfg(desktop)]
-                            let builder = builder.inner_size(1280.0, 820.0).center();
-
-                            if let Ok(_w) = builder.build() {}
-
-                            #[cfg(desktop)]
-                            if let Some(splash) = handle.get_webview_window("main") {
-                                let _ = splash.close();
-                            }
-
-                            push_log(&state, "Proxy SOCKS5 actif sur 127.0.0.1:19150");
-                            if let Err(e) = tor_proxy::run_proxy(tor_client, 19150).await {
-                                push_log(&state, &format!("Proxy arrêté : {}", e));
-                            }
-                        }
+                        push_log(&state, "Proxy actif — en attente de l'interface…");
                     }
                     Err(e) => {
                         let msg = format!("Erreur Tor : {}", e);
@@ -167,9 +230,12 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_onion_url,
+            get_app_version,
             get_tor_status,
             get_log,
-            frontend_ready
+            frontend_ready,
+            check_update,
+            open_rn2c_window,
         ])
         .run(tauri::generate_context!())
         .expect("erreur lors du lancement de RN2C");
