@@ -83,12 +83,12 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked --force
-      - name: Build macOS
-        run: cargo tauri build
+      - name: Build macOS universal
+        run: cargo tauri build --target universal-apple-darwin
       - uses: actions/upload-artifact@v4
         with:
           name: macos-build
-          path: src-tauri/target/release/bundle/dmg/*.dmg
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
 
   android:
     name: Android build

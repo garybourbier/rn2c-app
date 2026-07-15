@@ -8,6 +8,6 @@
     "windows-nsis": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.0/RN2C_0.2.0_x64-setup.exe",
     "windows-portable": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.0/rn2c-v0.2.0-portable-win64.zip",
     "android-apk": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.0/rn2c-v0.2.0-signed.apk",
-    "macos-dmg": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.0/RN2C_0.2.0_x64.dmg"
+    "macos-dmg": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.0/RN2C_0.2.0_universal.dmg"
   }
 }
