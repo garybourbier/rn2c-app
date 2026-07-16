@@ -7,7 +7,6 @@ const ONION_URL: &str =
     "http://e4a5qysp4kwollmwjnoanmk4qbvuowts4awaqjeeylocjc62i5wa2tyd.onion/";
 const ONION_HOST: &str =
     "e4a5qysp4kwollmwjnoanmk4qbvuowts4awaqjeeylocjc62i5wa2tyd.onion";
-#[cfg(target_os = "android")]
 const LOCAL_PROXY_URL: &str = "http://127.0.0.1:8181/";
 
 const LATEST_JSON_URL: &str =
@@ -41,10 +40,7 @@ fn push_log(state: &SharedState, msg: &str) {
 
 #[tauri::command]
 fn get_onion_url() -> &'static str {
-    #[cfg(target_os = "android")]
-    return LOCAL_PROXY_URL;
-    #[cfg(not(target_os = "android"))]
-    return ONION_URL;
+    LOCAL_PROXY_URL
 }
 
 #[tauri::command]
@@ -125,10 +121,9 @@ fn open_rn2c_window(app: tauri::AppHandle) {
         let builder = tauri::WebviewWindowBuilder::new(
             &app,
             "rn2c",
-            tauri::WebviewUrl::External(ONION_URL.parse().unwrap()),
+            tauri::WebviewUrl::External(LOCAL_PROXY_URL.parse().unwrap()),
         )
-        .title("RN2C")
-        .proxy_url("socks5://127.0.0.1:19150".parse().unwrap());
+        .title("RN2C");
 
         #[cfg(desktop)]
         let builder = builder.inner_size(1280.0, 820.0).center();
@@ -182,24 +177,24 @@ pub fn run() {
                         push_log(&state, "Tor bootstrappé — stabilisation des circuits…");
                         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
-                        // Démarrage du proxy en tâche de fond
-                        #[cfg(not(target_os = "android"))]
-                        {
-                            let tc = tor_client.clone();
-                            tauri::async_runtime::spawn(async move {
-                                if let Err(e) = tor_proxy::run_proxy(tc, 19150).await {
-                                    eprintln!("[Tor] proxy arrêté : {}", e);
-                                }
-                            });
-                        }
-                        #[cfg(target_os = "android")]
+                        // Proxy HTTP local sur 127.0.0.1:8181 (contexte sécurisé → getUserMedia OK)
                         {
                             let tc = tor_client.clone();
                             tauri::async_runtime::spawn(async move {
                                 if let Err(e) = tor_proxy::run_http_reverse_proxy(
                                     tc, ONION_HOST, 80, 8181,
                                 ).await {
-                                    eprintln!("[Tor] proxy android arrêté : {}", e);
+                                    eprintln!("[Tor] proxy HTTP arrêté : {}", e);
+                                }
+                            });
+                        }
+                        // Proxy SOCKS5 pour les requêtes Rust (check_update, etc.)
+                        #[cfg(not(target_os = "android"))]
+                        {
+                            let tc = tor_client.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) = tor_proxy::run_proxy(tc, 19150).await {
+                                    eprintln!("[Tor] proxy SOCKS5 arrêté : {}", e);
                                 }
                             });
                         }

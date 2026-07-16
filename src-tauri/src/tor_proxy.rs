@@ -83,8 +83,7 @@ async fn handle_socks5(mut conn: TcpStream, tor: TorClient<PreferredRuntime>) ->
     bail!("Tor connect {}:{} — {}", host, port, last_err)
 }
 
-// Reverse proxy HTTP local pour Android (proxy_url non supporté sur Android WebView)
-#[cfg(target_os = "android")]
+// Reverse proxy HTTP local (Android : proxy_url non supporté ; Desktop : contexte sécurisé requis pour getUserMedia)
 pub async fn run_http_reverse_proxy(
     tor: TorClient<PreferredRuntime>,
     onion_host: &'static str,
@@ -104,7 +103,6 @@ pub async fn run_http_reverse_proxy(
     }
 }
 
-#[cfg(target_os = "android")]
 async fn handle_http_reverse(
     mut client: TcpStream,
     tor: TorClient<PreferredRuntime>,
@@ -220,7 +218,6 @@ async fn handle_http_reverse(
     Ok(())
 }
 
-#[cfg(target_os = "android")]
 async fn send_loading_page(client: &mut TcpStream) -> Result<()> {
     let body = r#"<!DOCTYPE html><html lang="fr"><head>
 <meta charset="UTF-8"><meta http-equiv="refresh" content="20">
