@@ -4,13 +4,13 @@ use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 
 const ONION_URL: &str =
-    "http://e4a5qysp4kwollmwjnoanmk4qbvuowts4awaqjeeylocjc62i5wa2tyd.onion/";
+    "http://4xg4ryjrs64xd7kljwj7pryy7ci4zyu2hljpfq4gqj2xp4brjatu2rid.onion/";
 const ONION_HOST: &str =
-    "e4a5qysp4kwollmwjnoanmk4qbvuowts4awaqjeeylocjc62i5wa2tyd.onion";
+    "4xg4ryjrs64xd7kljwj7pryy7ci4zyu2hljpfq4gqj2xp4brjatu2rid.onion";
 const LOCAL_PROXY_URL: &str = "http://127.0.0.1:8181/";
 
 const LATEST_JSON_URL: &str =
-    "https://raw.githubusercontent.com/garybourbier/rn2c-app/main/releases/latest.json";
+    "https://raw.githubusercontent.com/garybourbier/rn2c-app/master/releases/latest.json";
 
 #[derive(Clone, serde::Serialize)]
 struct TorEvent {

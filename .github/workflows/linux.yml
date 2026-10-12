@@ -1,8 +1,8 @@
 name: Linux build
 
 on:
-  push:
-    branches: [master]
+  # Construites par le NAS (rn2c-build), plus par GitHub : lancement à la main seulement.
+  workflow_dispatch:
 
 jobs:
   build:
