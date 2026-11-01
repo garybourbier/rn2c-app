@@ -1,0 +1,25 @@
+# Maintainer: Pierroons
+#
+# Gabarit : packaging/aur/remplir.sh y écrit le numéro et les sommes des deux .deb de la release.
+# Le PKGBUILD rempli est un artefact du workflow « Build & Release » (artefact « aur »).
+pkgname=rn2c-bin
+pkgver=@PKGVER@
+pkgrel=1
+pkgdesc="RN2C radio app with built-in Tor (Arti)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/garybourbier/rn2c-app"
+license=('LicenseRef-unknown')
+depends=('webkit2gtk-4.1' 'gtk3' 'gst-plugins-base' 'gst-plugins-good')
+optdepends=('gst-plugins-bad: more audio formats'
+            'gst-libav: more audio formats')
+provides=('rn2c')
+conflicts=('rn2c')
+options=('!strip' '!debug')
+source_x86_64=("RN2C_${pkgver}_amd64.deb::${url}/releases/download/v${pkgver}/RN2C_${pkgver}_amd64.deb")
+source_aarch64=("RN2C_${pkgver}_arm64.deb::${url}/releases/download/v${pkgver}/RN2C_${pkgver}_arm64.deb")
+sha256sums_x86_64=('@SHA256_X86_64@')
+sha256sums_aarch64=('@SHA256_AARCH64@')
+
+package() {
+  bsdtar -xpf data.tar.* -C "$pkgdir"
+}
