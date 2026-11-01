@@ -1,0 +1,45 @@
+name: latest.json
+
+# Publier une release met releases/latest.json à jour sur master : c'est ce fichier que les applis
+# de bureau lisent pour proposer la mise à jour. Il ne se réécrit qu'à la publication, donc après
+# que l'APK signé a été joint au brouillon.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: latest-json
+  cancel-in-progress: false
+
+jobs:
+  latest:
+    name: Mettre latest.json à jour
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: master
+      - name: Écrire latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ETIQUETTE: ${{ github.event.release.tag_name }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${ETIQUETTE}" > "$RUNNER_TEMP/release.json"
+          python3 scripts/latest-json.py "$RUNNER_TEMP/release.json" releases/latest.json
+      - name: Commiter sur master
+        env:
+          ETIQUETTE: ${{ github.event.release.tag_name }}
+        run: |
+          if git diff --quiet -- releases/latest.json; then
+            echo "latest.json inchangé"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "latest.json : $ETIQUETTE" -- releases/latest.json
+          git push origin HEAD:master
