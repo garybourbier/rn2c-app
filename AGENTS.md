@@ -1,7 +1,8 @@
 # RN2C app — règles communes à tous les agents
 
 Application native de la radio RN2C : Rust + Tauri v2, avec un client Tor embarqué (Arti).
-Cibles : Linux (AppImage), Android (APK), macOS, Windows.
+Cibles : Linux x86_64 et ARM64 (AppImage, `.deb`, `.rpm`, AUR), Windows (`.exe`, `.msi`), macOS
+(`.dmg` universel), Android (APK).
 Ce fichier est la seule source des règles du projet : Claude, Codex, l'IA locale
 (`ai agent`, opencode) le lisent tous.
 
@@ -21,7 +22,10 @@ n'importe qui, historique compris.
   Bureau : SOCKS5 sur `127.0.0.1:19150` + `proxy_url` de la WebView, et un proxy HTTP local
   pour que `getUserMedia` ait un contexte sécurisé.
 - `ui/index.html` : l'écran de démarrage (journal Tor en direct).
-- `.github/workflows/` : `linux.yml`, `android.yml`, `release.yml`.
+- `.github/workflows/release.yml` : construit tous les formats ; `latest-json.yml` : met
+  `releases/latest.json` à jour quand une release est publiée.
+- `scripts/version.sh` : le numéro de l'appli, aux trois endroits qui le portent.
+- `packaging/` : le gabarit du paquet AUR `rn2c-bin` et les notes de version.
 
 ## Pour tous, sans exception
 - **Aucun secret dans le dépôt** : ni keystore, ni APK signé, ni mot de passe, ni jeton, ni
@@ -34,15 +38,19 @@ n'importe qui, historique compris.
   ouvre une connexion à elle seule est refusée.
 - Le micro (`RECORD_AUDIO`) ne sert qu'à la voix Mumble. Aucune lecture du nom du
   périphérique audio : il identifie l'utilisateur.
-- Publier une version (tag, release, APK distribué) est un acte de Gary, sur demande
-  explicite.
+- Publier une version (étiquette, release, APK distribué) est un acte d'un mainteneur
+  (Gary, Pierroons), jamais d'un agent.
 - Commentaires et messages de commit en français, au niveau du code voisin.
 
 ## Construire
 - Bureau : `cargo tauri build` depuis la racine.
 - Android : `cargo tauri android build` (SDK + NDK requis ; la signature se fait hors dépôt).
-- La CI construit à chaque push : elle consomme des minutes GitHub, on ne pousse pas pour
-  « voir si ça passe ».
+- La CI ne construit que sur une étiquette `vX.Y.Z`, qui prépare une release en brouillon, ou
+  lancée à la main, qui construit sans rien publier.
+- Le numéro de l'appli est celui du serveur RN2C : `scripts/version.sh X.Y.Z`, puis la même
+  étiquette que le serveur.
+- L'APK sort de la CI **non signé** : la clé de signature n'entre jamais sur GitHub. L'APK
+  signé est joint au brouillon avant sa publication.
 
 ## Qui fait quoi
 
