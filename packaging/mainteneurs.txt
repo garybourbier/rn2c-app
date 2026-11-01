@@ -1,0 +1,4 @@
+# Les comptes GitHub qui joignent l'APK signé à une release. scripts/latest-json.py refuse un APK
+# déposé par un autre compte. Un login par ligne.
+garybourbier
+Pierroons

@@ -1,11 +1,19 @@
 name: latest.json
 
 # Publier une release met releases/latest.json à jour sur master : c'est ce fichier que les applis
-# de bureau lisent pour proposer la mise à jour. Il ne se réécrit qu'à la publication, donc après
-# que l'APK signé a été joint au brouillon.
+# de bureau, à partir de la 0.8.1, lisent pour proposer la mise à jour. scripts/latest-json.py
+# refuse une release qui ne porte pas exactement les fichiers de la liste, déposés par la CI et,
+# pour l'APK, par un mainteneur. Un lancement à la main sur une étiquette rejoue l'écriture, après
+# une publication incomplète que l'on a complétée.
+# Ces contrôles vivent dans le dépôt : un compte qui peut écrire peut aussi les modifier.
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      etiquette:
+        description: "Étiquette de la release publiée (vX.Y.Z)"
+        required: true
 
 permissions:
   contents: read
@@ -20,26 +28,41 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+    env:
+      ETIQUETTE: ${{ github.event.release.tag_name || inputs.etiquette }}
+      ACTEUR: ${{ github.actor }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: master
+      - name: L'étiquette désigne un commit de master
+        run: |
+          sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${ETIQUETTE}" --jq .sha)
+          statut=$(gh api "repos/${GITHUB_REPOSITORY}/compare/master...${sha}" --jq .status)
+          case "$statut" in
+            identical|behind) echo "✓ ${ETIQUETTE} (${sha}) est sur master" ;;
+            *) echo "✗ ${ETIQUETTE} (${sha}) n'est pas sur master ($statut)"; exit 1 ;;
+          esac
       - name: Écrire latest.json
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ETIQUETTE: ${{ github.event.release.tag_name }}
         run: |
           gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${ETIQUETTE}" > "$RUNNER_TEMP/release.json"
           python3 scripts/latest-json.py "$RUNNER_TEMP/release.json" releases/latest.json
       - name: Commiter sur master
-        env:
-          ETIQUETTE: ${{ github.event.release.tag_name }}
         run: |
-          if git diff --quiet -- releases/latest.json; then
+          if [ -z "$(git status --porcelain -- releases/latest.json)" ]; then
             echo "latest.json inchangé"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "latest.json : $ETIQUETTE" -- releases/latest.json
-          git push origin HEAD:master
+          git add releases/latest.json
+          git commit -m "latest.json : ${ETIQUETTE}, publiée par ${ACTEUR}"
+          # Un envoi humain sur master entre la lecture et l'écriture : on reprend sur la tête nouvelle.
+          for essai in 1 2 3; do
+            if git push origin HEAD:master; then exit 0; fi
+            echo "envoi refusé (essai $essai), reprise sur la tête de master"
+            git pull --rebase origin master
+          done
+          echo "✗ latest.json n'a pas pu être envoyé sur master"
+          exit 1
