@@ -1,9 +1,12 @@
 name: Build & Release
 
-# Une étiquette vX.Y.Z construit tous les formats et prépare une release en BROUILLON.
-# Un lancement à la main construit seulement : les fichiers restent en artefacts, rien n'est publié.
+# Une étiquette vX.Y.Z poussée construit tous les formats et prépare une release en BROUILLON.
+# Un lancement à la main construit seulement, quelle que soit la référence : les fichiers restent
+# en artefacts, aucune release n'est créée.
 # L'APK sort non signé : la clé de signature n'entre jamais sur GitHub, l'APK signé est joint au
 # brouillon avant sa publication. Publier le brouillon met releases/latest.json à jour (latest-json.yml).
+# Les noms des fichiers viennent de packaging/fichiers.txt, et d'aucun autre endroit.
+# Aucun cache : un binaire de release se construit depuis le seul code étiqueté.
 on:
   push:
     tags: ['v*']
@@ -18,6 +21,7 @@ concurrency:
 
 env:
   TAURI_CLI: "2.12.2"
+  RUST: "1.99.0"
 
 jobs:
 
@@ -40,6 +44,23 @@ jobs:
             numero=$(scripts/version.sh --verifier)
           fi
           echo "numero=$numero" >> "$GITHUB_OUTPUT"
+      - name: L'étiquette poussée désigne un commit de master
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          statut=$(gh api "repos/${GITHUB_REPOSITORY}/compare/master...${GITHUB_SHA}" --jq .status)
+          case "$statut" in
+            identical|behind) echo "✓ ${GITHUB_SHA} est sur master ($statut)" ;;
+            *) echo "✗ ${GITHUB_SHA} n'est pas sur master ($statut)"; exit 1 ;;
+          esac
+      - name: Les notes nomment chaque fichier de la liste
+        run: |
+          manque=0
+          while read -r nom; do
+            grep -qF "$nom" packaging/notes-de-version.md || { echo "✗ les notes ne nomment pas $nom"; manque=1; }
+          done < <(scripts/fichiers.sh noms '{{VERSION}}')
+          exit $manque
 
   bureau:
     name: ${{ matrix.nom }}
@@ -51,41 +72,20 @@ jobs:
           - nom: Linux x86_64
             artefact: linux-x86_64
             machine: ubuntu-22.04
-            attendus: |
-              src-tauri/target/release/bundle/appimage/*.AppImage
-              src-tauri/target/release/bundle/deb/*.deb
-              src-tauri/target/release/bundle/rpm/*.rpm
           - nom: Linux ARM64
             artefact: linux-arm64
             machine: ubuntu-22.04-arm
-            attendus: |
-              src-tauri/target/release/bundle/appimage/*.AppImage
-              src-tauri/target/release/bundle/deb/*.deb
-              src-tauri/target/release/bundle/rpm/*.rpm
           - nom: Windows x86_64
             artefact: windows-x86_64
             machine: windows-latest
-            attendus: |
-              src-tauri/target/release/bundle/nsis/*.exe
-              src-tauri/target/release/bundle/msi/*.msi
-              rn2c-v*-portable-win64.zip
           - nom: macOS universel
             artefact: macos-universel
             machine: macos-latest
             cible: universal-apple-darwin
             cibles_rust: aarch64-apple-darwin,x86_64-apple-darwin
-            attendus: |
-              src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
     runs-on: ${{ matrix.machine }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-          key: ${{ matrix.artefact }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
       - name: Dépendances système
         if: runner.os == 'Linux'
         run: |
@@ -95,6 +95,7 @@ jobs:
             gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-gl
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: ${{ env.RUST }}
           targets: ${{ matrix.cibles_rust }}
       - name: Tauri CLI
         run: cargo install tauri-cli --version "=${{ env.TAURI_CLI }}" --locked
@@ -110,20 +111,16 @@ jobs:
         run: |
           $ver = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
           Compress-Archive -Path src-tauri/target/release/rn2c.exe -DestinationPath "rn2c-v${ver}-portable-win64.zip"
-      - name: Chaque format attendu est là
+      - name: Chaque fichier de la liste, produit une fois
         shell: bash
         env:
-          ATTENDUS: ${{ matrix.attendus }}
-        run: |
-          manque=0
-          for motif in $ATTENDUS; do
-            if ! ls $motif > /dev/null 2>&1; then echo "✗ absent : $motif"; manque=1; fi
-          done
-          exit $manque
+          ARTEFACT: ${{ matrix.artefact }}
+          NUMERO: ${{ needs.version.outputs.numero }}
+        run: scripts/fichiers.sh rassembler "$ARTEFACT" "$NUMERO" sortie
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bureau-${{ matrix.artefact }}
-          path: ${{ matrix.attendus }}
+          path: sortie/*
           if-no-files-found: error
 
   android:
@@ -132,13 +129,6 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-          key: android-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
@@ -150,6 +140,7 @@ jobs:
         run: echo "NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: ${{ env.RUST }}
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
       - name: Tauri CLI
         run: cargo install tauri-cli --version "=${{ env.TAURI_CLI }}" --locked
@@ -222,10 +213,11 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
+  # Le paquet AUR ne retient pas le brouillon : il se pousse à part, par un mainteneur.
   release:
     name: Release en brouillon
-    if: github.ref_type == 'tag'
-    needs: [version, bureau, android, aur]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [version, bureau, android]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -236,6 +228,10 @@ jobs:
           pattern: bureau-*
           path: fichiers
           merge-multiple: true
+      - name: Exactement les fichiers de bureau de la liste
+        env:
+          NUMERO: ${{ needs.version.outputs.numero }}
+        run: scripts/fichiers.sh controler "$NUMERO" "$PWD/fichiers" linux-x86_64 linux-arm64 windows-x86_64 macos-universel
       - name: Brouillon, fichiers de bureau joints
         env:
           GH_TOKEN: ${{ github.token }}
@@ -243,7 +239,5 @@ jobs:
           NUMERO: ${{ needs.version.outputs.numero }}
         run: |
           sed "s/{{VERSION}}/$NUMERO/g" packaging/notes-de-version.md > notes.md
-          mapfile -t joints < <(find fichiers -type f | sort)
-          printf '%s\n' "${joints[@]}"
           gh release create "$ETIQUETTE" --draft --verify-tag \
-            --title "RN2C $NUMERO" --notes-file notes.md "${joints[@]}"
+            --title "RN2C $NUMERO" --notes-file notes.md fichiers/*

@@ -1,0 +1,16 @@
+# Les fichiers qu'une release publie : la seule liste des noms.
+# clé de latest.json · artefact du workflow qui le produit · nom, {v} pour le numéro.
+# La lisent : le workflow « Build & Release » (rassembler, contrôler), scripts/latest-json.py,
+# packaging/aur/remplir.sh, et le job « version », qui vérifie que les notes nomment chacun.
+# Une clé ne change jamais de nom : une appli installée ne connaît que celles de sa version.
+linux-appimage        linux-x86_64     RN2C_{v}_amd64.AppImage
+linux-deb             linux-x86_64     RN2C_{v}_amd64.deb
+linux-rpm             linux-x86_64     RN2C-{v}-1.x86_64.rpm
+linux-appimage-arm64  linux-arm64      RN2C_{v}_aarch64.AppImage
+linux-deb-arm64       linux-arm64      RN2C_{v}_arm64.deb
+linux-rpm-arm64       linux-arm64      RN2C-{v}-1.aarch64.rpm
+windows-nsis          windows-x86_64   RN2C_{v}_x64-setup.exe
+windows-msi           windows-x86_64   RN2C_{v}_x64_en-US.msi
+windows-portable      windows-x86_64   rn2c-v{v}-portable-win64.zip
+macos-dmg             macos-universel  RN2C_{v}_universal.dmg
+android-apk           android          rn2c-v{v}-signed.apk

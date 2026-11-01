@@ -8,6 +8,7 @@
 #   scripts/version.sh X.Y.Z                 écrit X.Y.Z aux trois endroits, puis vérifie
 #   scripts/version.sh --verifier [vX.Y.Z]   vérifie l'accord des trois (et de l'étiquette, si elle
 #                                            est donnée), puis écrit le numéro sur la sortie standard
+#   scripts/version.sh --forme X.Y.Z         vérifie seulement la forme d'un numéro
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -26,6 +27,21 @@ lire() {
   printf '%s' "$valeur"
 }
 
+# Trois nombres, sans zéro en tête (cargo le refuse). Le .msi borne majeur et mineur à 255 ; Tauri
+# calcule le versionCode Android en majeur·1000000 + mineur·1000 + correctif, donc correctif ≤ 999.
+forme() {
+  local v=$1 majeur mineur correctif
+  if ! printf '%s' "$v" | grep -qE '^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'; then
+    echo "✗ $v : trois nombres de trois chiffres au plus, sans zéro en tête, séparés par des points" >&2
+    exit 1
+  fi
+  IFS=. read -r majeur mineur correctif <<< "$v"
+  if [ "$majeur" -gt 255 ] || [ "$mineur" -gt 255 ] || [ "$correctif" -gt 999 ]; then
+    echo "✗ $v : 255.255.999 au plus (le .msi, puis le versionCode Android)" >&2
+    exit 1
+  fi
+}
+
 verifier() {
   local etiquette=${1:-} conf toml lock
   conf=$(lire "$CONF" "$(sed -nE 's/^  "version": "([^"]+)",?$/\1/p' "$CONF")")
@@ -35,6 +51,7 @@ verifier() {
     echo "✗ les porteurs divergent : tauri.conf.json $conf · Cargo.toml $toml · Cargo.lock $lock" >&2
     exit 1
   fi
+  forme "$conf"
   if [ -n "$etiquette" ] && [ "$etiquette" != "v$conf" ]; then
     echo "✗ l'étiquette $etiquette ne correspond pas au numéro des fichiers, $conf" >&2
     exit 1
@@ -46,18 +63,12 @@ case "${1:-}" in
   --verifier)
     verifier "${2:-}"
     ;;
+  --forme)
+    forme "${2:?numéro}"
+    ;;
   [0-9]*.[0-9]*.[0-9]*)
     nouveau=$1
-    # Le .msi exige trois nombres : majeur et mineur jusqu'à 255, correctif jusqu'à 65535.
-    if ! printf '%s' "$nouveau" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-      echo "✗ $nouveau : trois nombres séparés par des points, rien d'autre" >&2
-      exit 1
-    fi
-    IFS=. read -r majeur mineur correctif <<< "$nouveau"
-    if [ "$majeur" -gt 255 ] || [ "$mineur" -gt 255 ] || [ "$correctif" -gt 65535 ]; then
-      echo "✗ $nouveau : le .msi n'accepte pas ce numéro (255.255.65535 au plus)" >&2
-      exit 1
-    fi
+    forme "$nouveau"
     verifier > /dev/null
     sed -i -E "s/^  \"version\": \"[^\"]+\"/  \"version\": \"$nouveau\"/" "$CONF"
     sed -i -E "0,/^version = /s/^version = \"[^\"]+\"$/version = \"$nouveau\"/" "$TOML"
@@ -65,7 +76,7 @@ case "${1:-}" in
     verifier
     ;;
   *)
-    sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' >&2
     exit 2
     ;;
 esac

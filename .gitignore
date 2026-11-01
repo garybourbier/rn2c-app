@@ -3,3 +3,9 @@ target/
 *.apk
 *.idsig
 src-tauri/gen/
+*.jks
+*.p12
+*.pk8
+*.pem
+key.properties
+keystore.properties
