@@ -101,11 +101,12 @@ async fn check_update() -> Option<UpdateInfo> {
     }
 }
 
-/// Trois nombres en chiffres ASCII, rien d'autre : « 1.x.0 », « v0.8.2 » ou « +1.0.0 » ne sont pas
-/// des versions, et l'écran refuserait leurs liens.
+/// Trois nombres en chiffres ASCII, sans zéro en tête, rien d'autre : « 1.x.0 », « v0.8.2 »,
+/// « +1.0.0 » ou « 01.8.2 » ne sont pas des versions (scripts/version.sh les refuse aussi).
 fn version(v: &str) -> Option<(u32, u32, u32)> {
     let mut parties = v.split('.').map(|s| {
-        if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) { s.parse::<u32>().ok() } else { None }
+        let chiffres = !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+        if chiffres && (s == "0" || !s.starts_with('0')) { s.parse::<u32>().ok() } else { None }
     });
     let v = (parties.next()??, parties.next()??, parties.next()??);
     if parties.next().is_some() { None } else { Some(v) }
@@ -139,7 +140,7 @@ mod tests {
     #[test]
     fn hors_forme() {
         for v in ["1.x.0", " 0.8.2", "v0.8.2", "0.x.9", "+1.0.0", "1.0", "1.0.0.0", "1.0.0-rc1",
-                  "4294967296.0.0", "٠.٨.٢", "abc", "", "1..0", "1.0."] {
+                  "4294967296.0.0", "٠.٨.٢", "abc", "", "1..0", "1.0.", "01.8.2", "0.08.2", "0.8.02"] {
             assert!(!is_newer_version(v, "0.8.1"), "{v}");
         }
     }
