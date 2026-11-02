@@ -4,10 +4,13 @@ name: Build & Release
 # Un lancement à la main construit seulement, quelle que soit la référence : les fichiers restent
 # en artefacts, aucune release n'est créée.
 # L'APK sort non signé : la clé de signature n'entre jamais sur GitHub, l'APK signé est joint au
-# brouillon avant sa publication. Publier le brouillon met releases/latest.json à jour (latest-json.yml).
+# brouillon avant sa publication ; le relevé de son contenu, lui, est joint par la CI. Publier le
+# brouillon met releases/latest.json à jour (latest-json.yml).
 # Les noms des fichiers viennent de packaging/fichiers.txt, et d'aucun autre endroit.
-# Aucun cache : un binaire de release se construit depuis le seul code étiqueté. Chaque fichier de
-# bureau porte une attestation de provenance, que latest-json.yml vérifie à la publication.
+# Aucun cache : un binaire de release se construit depuis le seul code étiqueté. Les outils que
+# l'AppImage télécharge à sa construction sont déposés d'avance, à l'empreinte près
+# (packaging/outils-appimage.txt). Chaque fichier que la CI joint porte une attestation de
+# provenance, que latest-json.yml vérifie à la publication.
 on:
   push:
     tags: ['v*']
@@ -109,12 +112,20 @@ jobs:
           targets: ${{ matrix.cibles_rust }}
       - name: Tauri CLI
         run: cargo install tauri-cli --version "=${{ env.TAURI_CLI }}" --locked
+      - name: Les outils de l'AppImage, déposés et vérifiés
+        if: runner.os == 'Linux'
+        run: |
+          runtime=$(scripts/outils-appimage.sh deposer "$(uname -m)")
+          echo "LDAI_RUNTIME_FILE=$runtime" >> "$GITHUB_ENV"
       - name: Construire
         if: ${{ !matrix.cible }}
         run: cargo tauri build
       - name: Construire (universel)
         if: ${{ matrix.cible }}
         run: cargo tauri build --target "${{ matrix.cible }}"
+      - name: L'AppImage n'a rien téléchargé
+        if: runner.os == 'Linux'
+        run: scripts/outils-appimage.sh controler "$(uname -m)"
       - name: Windows sans installation, nommé par la liste
         if: runner.os == 'Windows'
         shell: bash
@@ -135,7 +146,7 @@ jobs:
         run: scripts/fichiers.sh rassembler "$ARTEFACT" "$NUMERO" sortie
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: bureau-${{ matrix.artefact }}
+          name: ci-${{ matrix.artefact }}
           path: sortie/*
           if-no-files-found: error
 
@@ -189,10 +200,22 @@ jobs:
           apk=src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
           test -f "$apk"
           cp "$apk" "rn2c-v${NUMERO}-non-signe.apk"
+      - name: Le relevé du contenu de l'APK, nommé par la liste
+        env:
+          NUMERO: ${{ needs.version.outputs.numero }}
+        run: |
+          mkdir -p sortie
+          releve=$(scripts/fichiers.sh nom "$NUMERO" android-contenu)
+          python3 -B scripts/contenu-apk.py "rn2c-v${NUMERO}-non-signe.apk" > "sortie/$releve"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-non-signe
           path: rn2c-v*-non-signe.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-android-contenu
+          path: sortie/*
           if-no-files-found: error
 
   aur:
@@ -204,7 +227,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: bureau-linux-*
+          pattern: ci-linux-*
           path: linux
           merge-multiple: true
       - name: Remplir le PKGBUILD
@@ -252,18 +275,21 @@ jobs:
           fi
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: bureau-*
+          pattern: ci-*
           path: fichiers
           merge-multiple: true
-      - name: Exactement les fichiers de bureau de la liste
+      - name: Exactement les fichiers que la CI joint, d'après la liste
         env:
           NUMERO: ${{ needs.version.outputs.numero }}
-        run: scripts/fichiers.sh controler "$NUMERO" "$PWD/fichiers" linux-x86_64 linux-arm64 windows-x86_64 macos-universel
-      - name: Attestation de provenance de chaque fichier de bureau
+        run: |
+          artefacts=$(scripts/fichiers.sh artefacts --ci)
+          # shellcheck disable=SC2086 # un artefact par mot : la liste les borne à [a-z0-9_-]
+          scripts/fichiers.sh controler "$NUMERO" "$PWD/fichiers" $artefacts
+      - name: Attestation de provenance de chaque fichier que la CI joint
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: fichiers/*
-      - name: Brouillon, fichiers de bureau joints
+      - name: Brouillon, fichiers de la CI joints
         env:
           GH_TOKEN: ${{ github.token }}
           ETIQUETTE: ${{ github.ref_name }}

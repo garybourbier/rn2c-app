@@ -11,6 +11,8 @@
 | macOS, Intel et Apple Silicon | `RN2C_{{VERSION}}_universal.dmg` |
 | Android | `rn2c-v{{VERSION}}-signed.apk` |
 
+`rn2c-v{{VERSION}}-contenu-apk.txt` donne l'empreinte de chaque fichier de l'APK que la CI a construit : l'APK publié ne diffère de lui que par sa signature.
+
 ## À savoir
 
 - **Android** : depuis la 0.8.1, l'appli est signée par une nouvelle clé. Désinstalle d'abord une version 0.2.x, sinon Android refuse l'installation. L'empreinte SHA-256 du certificat de signature est `{{EMPREINTE_APK}}` : `apksigner verify --print-certs` la montre pour un APK téléchargé. N'installe pas un APK qui en porte une autre.

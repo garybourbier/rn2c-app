@@ -1,7 +1,11 @@
 # Les fichiers qu'une release publie : la seule liste des noms.
 # clé de latest.json · artefact du workflow qui le produit · nom, {v} pour le numéro.
-# La lisent : le workflow « Build & Release » (rassembler, contrôler), scripts/latest-json.py,
-# packaging/aur/remplir.sh, et le job « version », qui vérifie que les notes nomment chacun.
+# La lisent : le workflow « Build & Release » (rassembler, contrôler), latest-json.yml et
+# scripts/latest-json.py, packaging/aur/remplir.sh, et le job « version », qui vérifie que les
+# notes nomment chacun.
+# Les artefacts sont ceux de cette liste et d'aucune autre : chacun, sauf android (l'APK, joint
+# signé par un mainteneur), est construit par une machine de la matrice de release.yml, et le
+# brouillon ne se crée que s'il porte exactement leurs fichiers.
 # Une clé ne change jamais de nom : une appli installée ne connaît que celles de sa version.
 linux-appimage        linux-x86_64     RN2C_{v}_amd64.AppImage
 linux-deb             linux-x86_64     RN2C_{v}_amd64.deb
@@ -14,3 +18,4 @@ windows-msi           windows-x86_64   RN2C_{v}_x64_en-US.msi
 windows-portable      windows-x86_64   rn2c-v{v}-portable-win64.zip
 macos-dmg             macos-universel  RN2C_{v}_universal.dmg
 android-apk           android          rn2c-v{v}-signed.apk
+android-contenu       android-contenu  rn2c-v{v}-contenu-apk.txt
