@@ -1,19 +1,18 @@
 name: latest.json
 
-# Publier une release met releases/latest.json à jour sur master : c'est ce fichier que les applis
-# de bureau, à partir de la 0.8.1, lisent pour proposer la mise à jour. scripts/latest-json.py
-# refuse une release qui ne porte pas exactement les fichiers de la liste, déposés par la CI et,
-# pour l'APK, par un mainteneur. Un lancement à la main sur une étiquette rejoue l'écriture, après
-# une publication incomplète que l'on a complétée.
-# Ces contrôles vivent dans le dépôt : un compte qui peut écrire peut aussi les modifier.
+# À chaque release publiée (ou préversion promue en release), releases/latest.json est réécrit sur
+# master d'après la PLUS HAUTE release publiée, quel que soit l'ordre d'arrivée des événements :
+# c'est ce fichier que les applis de bureau, à partir de la 0.8.1, lisent pour proposer la mise à
+# jour. Le script et les listes viennent de l'étiquette de cette release ; master ne sert qu'à écrire.
+# Vérifié avant d'écrire : aucune ref « main » (les 0.2.x y cherchent leur mise à jour), l'étiquette
+# sur master, l'attestation de chaque fichier de bureau (le run de release.yml sur cette étiquette),
+# le certificat et le numéro de l'APK, puis ce que scripts/latest-json.py contrôle.
+# Ces contrôles vivent dans le dépôt : un compte qui peut écrire peut aussi les modifier, et un
+# fichier remplacé après la publication n'est revu qu'à la publication suivante.
 on:
   release:
-    types: [published]
+    types: [released]
   workflow_dispatch:
-    inputs:
-      etiquette:
-        description: "Étiquette de la release publiée (vX.Y.Z)"
-        required: true
 
 permissions:
   contents: read
@@ -28,36 +27,96 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+      attestations: read
     env:
-      ETIQUETTE: ${{ github.event.release.tag_name || inputs.etiquette }}
-      ACTEUR: ${{ github.actor }}
       GH_TOKEN: ${{ github.token }}
+      ACTEUR: ${{ github.actor }}
+      EVENEMENT: ${{ github.event_name }}
     steps:
+      - name: Aucune ref « main »
+        run: |
+          for ref in heads/main tags/main; do
+            if gh api "repos/${GITHUB_REPOSITORY}/git/ref/${ref}" > /dev/null 2>&1; then
+              echo "✗ refs/${ref} existe : les applis 0.2.x installées liraient son latest.json"
+              exit 1
+            fi
+          done
+      - name: La plus haute release publiée
+        run: |
+          etiquette=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
+              --jq '.[] | select(.draft | not) | select(.prerelease | not) | .tag_name' \
+            | LC_ALL=C grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          if [ -z "$etiquette" ]; then
+            echo "✗ aucune release publiée de la forme vX.Y.Z"
+            exit 1
+          fi
+          echo "La plus haute release publiée : $etiquette"
+          echo "ETIQUETTE=$etiquette" >> "$GITHUB_ENV"
+          echo "NUMERO=${etiquette#v}" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.ETIQUETTE }}
+          path: etiquette
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: master
+          path: master
       - name: L'étiquette désigne un commit de master
         run: |
-          sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${ETIQUETTE}" --jq .sha)
+          sha=$(git -C etiquette rev-parse HEAD)
           statut=$(gh api "repos/${GITHUB_REPOSITORY}/compare/master...${sha}" --jq .status)
           case "$statut" in
             identical|behind) echo "✓ ${ETIQUETTE} (${sha}) est sur master" ;;
             *) echo "✗ ${ETIQUETTE} (${sha}) n'est pas sur master ($statut)"; exit 1 ;;
           esac
-      - name: Écrire latest.json
+      - name: Ce que le script contrôle, écrit à part
         run: |
           gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${ETIQUETTE}" > "$RUNNER_TEMP/release.json"
-          python3 scripts/latest-json.py "$RUNNER_TEMP/release.json" releases/latest.json
-      - name: Commiter sur master
+          mkdir -p "$RUNNER_TEMP/neuf"
+          if [ -f master/releases/latest.json ]; then cp master/releases/latest.json "$RUNNER_TEMP/neuf/"; fi
+          python3 -B etiquette/scripts/latest-json.py "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/neuf/latest.json" "$GITHUB_REPOSITORY"
+      - name: Chaque fichier de bureau vient du run de release.yml sur cette étiquette
         run: |
+          mkdir -p "$RUNNER_TEMP/bureau"
+          noms=$(for a in linux-x86_64 linux-arm64 windows-x86_64 macos-universel; do etiquette/scripts/fichiers.sh noms "$NUMERO" "$a"; done)
+          while read -r nom; do
+            gh release download "$ETIQUETTE" -R "$GITHUB_REPOSITORY" -p "$nom" -D "$RUNNER_TEMP/bureau"
+            gh attestation verify "$RUNNER_TEMP/bureau/$nom" -R "$GITHUB_REPOSITORY" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml" \
+              --source-ref "refs/tags/${ETIQUETTE}" --deny-self-hosted-runners > /dev/null
+            echo "✓ $nom"
+          done <<< "$noms"
+      - name: L'APK porte le certificat publié et le numéro de la release
+        run: |
+          apk=$(etiquette/scripts/fichiers.sh nom "$NUMERO" android-apk)
+          gh release download "$ETIQUETTE" -R "$GITHUB_REPOSITORY" -p "$apk" -D "$RUNNER_TEMP"
+          outils=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          empreinte=$(grep -E '^[0-9a-f]{64}$' etiquette/packaging/empreinte-apk.txt)
+          certificats=$("$outils/apksigner" verify --print-certs "$RUNNER_TEMP/$apk")
+          [ "$(printf '%s\n' "$certificats" | grep -c 'certificate SHA-256 digest:')" -eq 1 ] \
+            || { echo "✗ $apk : un seul signataire attendu"; exit 1; }
+          printf '%s\n' "$certificats" | grep -qF "certificate SHA-256 digest: $empreinte" \
+            || { echo "✗ $apk n'est pas signé par le certificat de packaging/empreinte-apk.txt"; exit 1; }
+          IFS=. read -r majeur mineur correctif <<< "$NUMERO"
+          code=$((majeur * 1000000 + mineur * 1000 + correctif))
+          "$outils/aapt" dump badging "$RUNNER_TEMP/$apk" | head -n 1 \
+            | grep -qF "versionCode='$code' versionName='$NUMERO'" \
+            || { echo "✗ $apk ne porte pas versionCode $code et versionName $NUMERO"; exit 1; }
+          echo "✓ $apk : certificat et numéro"
+      - name: Commiter sur master
+        working-directory: master
+        run: |
+          mkdir -p releases
+          cp "$RUNNER_TEMP/neuf/latest.json" releases/latest.json
           if [ -z "$(git status --porcelain -- releases/latest.json)" ]; then
             echo "latest.json inchangé"
             exit 0
           fi
+          if [ "$EVENEMENT" = release ]; then quoi="publiée par ${ACTEUR}"; else quoi="réécrit à la main par ${ACTEUR}"; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add releases/latest.json
-          git commit -m "latest.json : ${ETIQUETTE}, publiée par ${ACTEUR}"
+          git commit -m "latest.json : ${ETIQUETTE}, ${quoi}"
           # Un envoi humain sur master entre la lecture et l'écriture : on reprend sur la tête nouvelle.
           for essai in 1 2 3; do
             if git push origin HEAD:master; then exit 0; fi

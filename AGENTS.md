@@ -27,7 +27,8 @@ n'importe qui, historique compris.
 - `scripts/version.sh` : le numéro de l'appli, aux trois endroits qui le portent.
 - `packaging/fichiers.txt` : les noms des fichiers d'une release, et d'aucun autre endroit ;
   `scripts/fichiers.sh` les lit pour la CI.
-- `packaging/mainteneurs.txt` : les comptes qui joignent l'APK signé.
+- `packaging/mainteneurs.txt` : les comptes qui joignent l'APK signé ;
+  `packaging/empreinte-apk.txt` : l'empreinte du certificat qui le signe.
 - `packaging/aur/` : le gabarit du paquet AUR `rn2c-bin` ; `packaging/notes-de-version.md` : le
   gabarit des notes de release.
 
@@ -52,6 +53,8 @@ n'importe qui, historique compris.
 - Android : `cargo tauri android build` (SDK + NDK requis ; la signature se fait hors dépôt).
 - La CI ne construit que sur une étiquette `vX.Y.Z` poussée, qui prépare une release en
   brouillon, ou lancée à la main, qui construit sans créer de release. Elle n'a aucun cache.
+  Chaque fichier de bureau du brouillon porte une attestation de provenance. Une release qui
+  existe déjà pour l'étiquette, brouillon compris, arrête le run : la supprimer avant de relancer.
 - Le numéro de l'appli est celui du serveur RN2C : `scripts/version.sh X.Y.Z`, puis la même
   étiquette que le serveur. L'étiquette se pose sur un commit de `master`.
 - `master` reçoit un commit du robot à chaque publication (`releases/latest.json`) : une
@@ -60,11 +63,16 @@ n'importe qui, historique compris.
 - L'APK sort de la CI **non signé** : la clé de signature n'entre jamais sur GitHub. Il se
   télécharge depuis le run de l'**étiquette**, son numéro se vérifie (`aapt dump badging`) avant
   la signature, et l'APK signé est joint au brouillon par un compte de `packaging/mainteneurs.txt`.
-- Avant de publier : écrire le premier paragraphe des notes (ce qui change), et pousser le paquet
-  AUR. `latest-json.yml` refuse une release incomplète ; il se relance à la main une fois
-  complétée.
-- Ces contrôles vivent dans le dépôt : un compte qui peut écrire peut aussi les modifier. Les
-  mainteneurs, et les jetons qu'ils prêtent, sont de confiance.
+- Avant de publier : écrire, avant le premier titre des notes, ce que la version change, et
+  pousser le paquet AUR `rn2c-bin`, dont le nom appartient au compte AUR d'un mainteneur.
+  `latest-json.yml` refuse une release incomplète, un fichier de bureau sans attestation du run de
+  l'étiquette, un APK d'un autre certificat ou d'un autre numéro ; il se relance à la main une
+  fois la release complétée, et écrit toujours la plus haute release publiée.
+- Aucune ref ne s'appelle `main` : les 0.2.x y cherchent leur mise à jour, et `latest-json.yml`
+  s'arrête si elle existe.
+- Ces contrôles vivent dans le dépôt : un compte qui peut écrire peut aussi les modifier, et un
+  fichier remplacé après la publication n'est revu qu'à la publication suivante. Les mainteneurs,
+  et les jetons qu'ils prêtent, sont de confiance.
 
 ## Qui fait quoi
 

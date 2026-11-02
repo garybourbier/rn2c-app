@@ -262,13 +262,17 @@ function showUpdateBanner(info, onDismiss) {
     'android-apk':    'Android .apk',
     'macos-dmg':      'macOS .dmg',
   };
-  // Seul un lien vers un fichier d'une release de ce dépôt s'affiche : latest.json s'édite sur master.
-  const RELEASE = /^https:\/\/github\.com\/garybourbier\/rn2c-app\/releases\/download\/v[0-9]+\.[0-9]+\.[0-9]+\/[A-Za-z0-9._-]+$/;
+  // Seul un lien vers un fichier de la release annoncée, dans ce dépôt, s'affiche : latest.json
+  // s'édite sur master.
+  const RELEASE = 'https://github.com/garybourbier/rn2c-app/releases/download/v' + info.version + '/';
+  const NOM = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
   const dl = info.downloads || {};
   Object.entries(labels).forEach(([key, label]) => {
-    if (typeof dl[key] === 'string' && RELEASE.test(dl[key]) && !dl[key].includes('..')) {
+    const lien = dl[key];
+    if (typeof lien === 'string' && /^[0-9]+\.[0-9]+\.[0-9]+$/.test(info.version)
+        && lien.startsWith(RELEASE) && NOM.test(lien.slice(RELEASE.length)) && !lien.includes('..')) {
       const a = document.createElement('a');
-      a.href = dl[key];
+      a.href = lien;
       a.target = '_blank';
       a.rel = 'noopener';
       a.textContent = '[> ' + label + ']';
