@@ -1,0 +1,8 @@
+# La distribution de Gradle que le projet Android de Tauri télécharge pour construire l'APK, figée
+# avec son empreinte. Le job Android ajoute distributionSha256Sum au gradle-wrapper.properties que
+# « cargo tauri android init » écrit, et s'arrête si le gabarit demande une autre adresse : un
+# changement de TAURI_CLI se voit ici.
+# Gradle 9.6.1, celle du gabarit de tauri-cli 2.12.2. L'empreinte est celle que Gradle publie à
+# côté de l'archive, et celle de la release v9.6.1 de gradle/gradle-distributions.
+# adresse · empreinte sha256
+https://services.gradle.org/distributions/gradle-9.6.1-bin.zip  9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14

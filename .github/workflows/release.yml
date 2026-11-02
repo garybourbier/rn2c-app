@@ -173,6 +173,17 @@ jobs:
         run: cargo install tauri-cli --version "=${{ env.TAURI_CLI }}" --locked
       - name: Projet Android
         run: cargo tauri android init
+      - name: Gradle, à l'empreinte près
+        run: |
+          props=src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties
+          read -r adresse somme < <(grep -vE '^[[:space:]]*(#|$)' packaging/gradle.txt)
+          [[ $somme =~ ^[0-9a-f]{64}$ ]] || { echo "✗ packaging/gradle.txt : empreinte mal formée"; exit 1; }
+          demandee=$(sed -n 's/^distributionUrl=//p' "$props" | sed 's/\\:/:/g')
+          [ "$demandee" = "$adresse" ] \
+            || { echo "✗ le projet Android demande « $demandee », packaging/gradle.txt fige « $adresse »"; exit 1; }
+          if grep -q '^distributionSha256Sum=' "$props"; then echo "✗ $props porte déjà une empreinte"; exit 1; fi
+          printf '\ndistributionSha256Sum=%s\n' "$somme" >> "$props"
+          echo "✓ Gradle : $adresse, empreinte $somme"
       - name: Manifeste — le micro, pour la voix Mumble
         run: |
           MANIFEST=src-tauri/gen/android/app/src/main/AndroidManifest.xml
@@ -193,25 +204,31 @@ jobs:
           KOTLIN
       - name: Construire l'APK
         run: cargo tauri android build --apk
+      # Le commit dans le nom : l'APK d'un lancement à la main sur une branche ne se confond pas
+      # avec celui de l'étiquette.
       - name: Nommer l'APK
         env:
           NUMERO: ${{ needs.version.outputs.numero }}
         run: |
           apk=src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
           test -f "$apk"
-          cp "$apk" "rn2c-v${NUMERO}-non-signe.apk"
+          nom="rn2c-v${NUMERO}-non-signe-${GITHUB_SHA:0:12}.apk"
+          cp "$apk" "$nom"
+          echo "APK_NON_SIGNE=$nom" >> "$GITHUB_ENV"
       - name: Le relevé du contenu de l'APK, nommé par la liste
         env:
           NUMERO: ${{ needs.version.outputs.numero }}
         run: |
           mkdir -p sortie
           releve=$(scripts/fichiers.sh nom "$NUMERO" android-contenu)
-          python3 -B scripts/contenu-apk.py "rn2c-v${NUMERO}-non-signe.apk" > "sortie/$releve"
+          python3 -B scripts/contenu-apk.py "$APK_NON_SIGNE" > "sortie/$releve"
+      # 90 jours, le plus long que GitHub garde : l'APK se signe et se joint dans ce délai.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: android-non-signe
-          path: rn2c-v*-non-signe.apk
+          name: android-non-signe-${{ github.sha }}
+          path: ${{ env.APK_NON_SIGNE }}
           if-no-files-found: error
+          retention-days: 90
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ci-android-contenu
