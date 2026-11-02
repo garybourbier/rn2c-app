@@ -134,13 +134,26 @@ jobs:
               --deny-self-hosted-runners > /dev/null
             echo "✓ $nom"
           done <<< "$noms"
+      # Les outils Android de la vérification, installés ici plutôt que pris dans l'image du runner :
+      # la version de build-tools est celle du job Android de release.yml.
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        if: env.CHAINE == '1'
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        if: env.CHAINE == '1'
+      - name: build-tools 34.0.0
+        if: env.CHAINE == '1'
+        run: sdkmanager "build-tools;34.0.0"
       - name: L'APK porte le certificat publié, le numéro de la release et le contenu du relevé
         if: env.CHAINE == '1'
         run: |
           apk=$(etiquette/scripts/fichiers.sh nom "$NUMERO" android-apk)
           releve=$(etiquette/scripts/fichiers.sh nom "$NUMERO" android-contenu)
           gh release download "$ETIQUETTE" -R "$GITHUB_REPOSITORY" -p "$apk" -D "$RUNNER_TEMP"
-          outils=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          outils="$ANDROID_HOME/build-tools/34.0.0"
+          test -x "$outils/apksigner" && test -x "$outils/aapt" || { echo "✗ apksigner ou aapt absent de $outils"; exit 1; }
           empreinte=$(grep -E '^[0-9a-f]{64}$' etiquette/packaging/empreinte-apk.txt)
           certificats=$("$outils/apksigner" verify --print-certs "$RUNNER_TEMP/$apk")
           [ "$(printf '%s\n' "$certificats" | grep -c 'certificate SHA-256 digest:')" -eq 1 ] \

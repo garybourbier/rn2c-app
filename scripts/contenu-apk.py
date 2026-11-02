@@ -20,6 +20,8 @@ SIGNATURE = re.compile(r"^META-INF/(MANIFEST\.MF|[^/]+\.(SF|RSA|DSA|EC)|SIG-[^/]
 
 
 def releve(chemin):
+    if not zipfile.is_zipfile(chemin):
+        sys.exit(f"✗ {chemin} n'est pas une archive zip : APK absent, tronqué ou d'un autre format")
     with zipfile.ZipFile(chemin) as apk:
         compte = collections.Counter(e.filename for e in apk.infolist())
         doubles = sorted(n for n, k in compte.items() if k > 1)

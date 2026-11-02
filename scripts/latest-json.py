@@ -38,7 +38,7 @@ def lignes(chemin):
 
 
 def nettoyer(corps):
-    corps = (corps or "").replace("\r\n", "\n").replace("\r", "\n")
+    corps = (corps or "").replace("\r\n", "\n").replace("\r", "\n").replace("\t", " ")
     return "".join(c for c in corps if c == "\n" or unicodedata.category(c) not in ("Cc", "Cf"))
 
 

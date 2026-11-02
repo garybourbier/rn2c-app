@@ -15,7 +15,7 @@
 
 ## À savoir
 
-- **Android** : depuis la 0.8.1, l'appli est signée par une nouvelle clé. Désinstalle d'abord une version 0.2.x, sinon Android refuse l'installation. L'empreinte SHA-256 du certificat de signature est `{{EMPREINTE_APK}}` : `apksigner verify --print-certs` la montre pour un APK téléchargé. N'installe pas un APK qui en porte une autre.
+- **Android** : depuis la 0.8.1, l'appli est signée par une nouvelle clé. Désinstalle d'abord une version 0.2.x, sinon Android refuse l'installation. L'appli Android ne cherche pas de mise à jour : reviens sur la page des releases pour la suivante. L'empreinte SHA-256 du certificat de signature est `{{EMPREINTE_APK}}` : `apksigner verify --print-certs` la montre pour un APK téléchargé. N'installe pas un APK qui en porte une autre.
 - **Windows** : l'appli n'est pas signée. Si Windows affiche « Windows a protégé votre ordinateur », choisis « Informations complémentaires », puis « Exécuter quand même ».
 - **macOS** : l'appli n'est pas notarisée par Apple. À la première ouverture, va dans Réglages Système → Confidentialité et sécurité, puis « Ouvrir quand même ».
 - Tout le trafic de l'appli passe par Tor, intégré à l'appli : rien d'autre à installer.
