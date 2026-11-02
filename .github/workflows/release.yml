@@ -235,9 +235,12 @@ jobs:
           path: sortie/*
           if-no-files-found: error
 
+  # Il ne lit que les deux .deb : un échec de macOS ou de Windows ne l'arrête pas, et remplir.sh
+  # refuse s'il manque l'un des deux.
   aur:
     name: Paquet AUR (makepkg)
     needs: [version, bureau]
+    if: ${{ !cancelled() && needs.version.result == 'success' }}
     runs-on: ubuntu-22.04
     container: archlinux:base-devel
     steps:
