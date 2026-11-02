@@ -52,8 +52,10 @@ n'importe qui, historique compris.
 - Bureau : `cargo tauri build` depuis la racine.
 - Android : `cargo tauri android build` (SDK + NDK requis ; la signature se fait hors dépôt).
 - La CI ne construit que sur une étiquette `vX.Y.Z` poussée, qui prépare une release en
-  brouillon, ou lancée à la main, qui construit sans créer de release. Elle n'a aucun cache.
-  Chaque fichier de bureau du brouillon porte une attestation de provenance. Une release qui
+  brouillon, ou lancée à la main, qui construit sans créer de release. Elle n'a aucun cache ; ce
+  qu'elle télécharge pour construire l'AppImage et l'APK est figé à l'empreinte près
+  (`packaging/outils-appimage.txt`, `packaging/gradle.txt`). Chaque fichier que la CI joint au
+  brouillon porte une attestation de provenance. Une release qui
   existe déjà pour l'étiquette, brouillon compris, arrête le run : la supprimer avant de relancer.
 - Le numéro de l'appli est celui du serveur RN2C : `scripts/version.sh X.Y.Z`, puis la même
   étiquette que le serveur. L'étiquette se pose sur un commit de `master`.
@@ -61,19 +63,26 @@ n'importe qui, historique compris.
   branche de travail fusionne `origin/master` avant la version suivante, et `master` n'est jamais
   réaligné de force.
 - L'APK sort de la CI **non signé** : la clé de signature n'entre jamais sur GitHub. Il se
-  télécharge depuis le run de l'**étiquette**, son numéro se vérifie (`aapt dump badging`) avant
-  la signature, et l'APK signé est joint au brouillon par un compte de `packaging/mainteneurs.txt`.
-  La CI joint elle-même le relevé de son contenu (`rn2c-vX.Y.Z-contenu-apk.txt`) : l'APK signé ne
-  peut en différer que par ses fichiers de signature.
+  télécharge depuis le run de l'**étiquette** (son nom porte le commit : celui de
+  `git rev-parse vX.Y.Z^{commit}`), dans les 90 jours que GitHub le garde ; son numéro se vérifie
+  (`aapt dump badging`) avant la signature, et l'APK signé est joint au brouillon par un compte de
+  `packaging/mainteneurs.txt`. La CI joint elle-même le relevé de son contenu
+  (`rn2c-vX.Y.Z-contenu-apk.txt`) : l'APK signé ne peut en différer que par ses fichiers de
+  signature. **Avant de publier**, le comparer au relevé du brouillon :
+  `gh release download vX.Y.Z -p 'rn2c-v*-contenu-apk.txt'`, puis
+  `python3 scripts/contenu-apk.py <APK signé> rn2c-vX.Y.Z-contenu-apk.txt` doit répondre ✓.
 - Avant de publier : écrire, avant le premier titre des notes, ce que la version change, et
   pousser le paquet AUR `rn2c-bin`, dont le nom appartient au compte AUR d'un mainteneur.
   `latest-json.yml` refuse une release incomplète, un fichier joint par la CI sans attestation du
   run de release.yml sur le commit de l'étiquette, un APK d'un autre certificat, d'un autre numéro
-  ou d'un autre contenu que le relevé ; il se relance à la main une fois la release complétée.
+  ou d'un autre contenu que le relevé ; il se relance à la main une fois la release complétée. Il
+  n'écrit que si celui qui publie, ou relance, est dans `packaging/mainteneurs.txt`.
 - `latest.json` porte toujours la plus haute release publiée de la forme `vX.Y.Z`, même plus basse
   que la précédente : pour **retirer** une release, la supprimer (ou la repasser en préversion),
-  puis relancer `latest-json.yml` à la main.
-- Aucune ref ne s'appelle `main` ni `main/…` : les 0.2.x y cherchent leur mise à jour, et
+  puis relancer `latest-json.yml` à la main. Si la plus haute qui reste précède cette chaîne (une
+  0.2.x), `latest.json` est retiré de `master` : aucune appli ne propose plus de mise à jour.
+- Aucune ref ne s'appelle `main`, `main/…` ou `master/…`, ni aucune étiquette `master` : les 0.2.x
+  cherchent leur mise à jour sur `main`, les applis suivantes lisent `refs/heads/master`, et
   `latest-json.yml` s'arrête si l'une existe.
 - Une étiquette ne se pose **que sur un commit de `master`** : le workflow qui tourne est celui du
   commit étiqueté, et la garde « sur master » vit dans ce même fichier. Posée sur le commit d'une
@@ -87,9 +96,14 @@ n'importe qui, historique compris.
   signé : **ne jamais renommer le compte ni le dépôt** sans avoir d'abord publié une version qui
   lit le nouveau nom. Un nom libéré pourrait être repris par un tiers, qui proposerait ses
   fichiers à toutes ces applis.
+- Ce qui n'est pas figé à l'empreinte : les paquets Ubuntu et Arch (dépôts signés par leur
+  distribution), et les dépendances que Gradle tire pour l'APK (Google Maven, Maven Central, par
+  HTTPS, sans fichier de vérification Gradle).
 - Ces contrôles vivent dans le dépôt : un compte qui peut écrire peut aussi les modifier, et un
-  fichier remplacé après la publication n'est revu qu'à la publication suivante. Les mainteneurs,
-  et les jetons qu'ils prêtent, sont de confiance.
+  fichier remplacé après la publication n'est revu qu'à la publication suivante. Il peut aussi
+  relancer une version passée d'un workflow (un lancement à la main sur une ancienne étiquette
+  exécute le fichier de cette étiquette). Les mainteneurs, et les jetons qu'ils prêtent, sont de
+  confiance.
 
 ## Qui fait quoi
 
