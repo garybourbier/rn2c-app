@@ -7,7 +7,8 @@
 #       LDAI_RUNTIME_FILE à la construction
 #   scripts/outils-appimage.sh controler <architecture>
 #       après la construction : le dossier ne porte que les outils déposés et les deux scripts que
-#       le bundler embarque, et l'AppImage produite commence par le runtime déposé
+#       le bundler embarque, et l'AppImage produite commence par le runtime déposé, hors des quatre
+#       sections que l'outil d'assemblage remplit (.digest_md5, .upd_info, .sha256_sig, .sig_key)
 #
 # <architecture> : x86_64 ou aarch64, ce que rend « uname -m » sur les machines de la CI.
 set -euo pipefail
@@ -77,11 +78,32 @@ controler() {
     echo "✗ $n AppImage produite(s) au lieu d'une" >&2
     exit 1
   fi
-  if ! cmp -s -n "$(wc -c < "$runtime")" "$runtime" "$appimage"; then
-    echo "✗ $(basename "$appimage") ne commence pas par le runtime déposé" >&2
-    exit 1
-  fi
-  echo "✓ $(basename "$appimage") commence par le runtime déposé"
+  python3 -I - "$runtime" "$appimage" <<'PY'
+import struct, sys
+# Sections que l'outil d'assemblage écrit dans le runtime qu'il copie : vides dans le runtime
+# publié, remplies dans l'AppImage (empreinte, informations de mise à jour, signature).
+RESERVEES = {b".digest_md5", b".upd_info", b".sha256_sig", b".sig_key"}
+runtime, appimage = (open(f, "rb").read() for f in sys.argv[1:3])
+nom = sys.argv[2].rsplit("/", 1)[-1]
+if runtime[:6] != b"\x7fELF\x02\x01":
+    sys.exit(f"✗ {sys.argv[1]} : pas un ELF 64 bits petit-boutiste")
+shoff, = struct.unpack_from("<Q", runtime, 0x28)
+taille_entete, nombre, index_noms = struct.unpack_from("<HHH", runtime, 0x3A)
+entetes = [struct.unpack_from("<IIQQQQ", runtime, shoff + i * taille_entete) for i in range(nombre)]
+noms = entetes[index_noms][4]
+tete = bytearray(appimage[:len(runtime)])
+masquees = 0
+for e in entetes:
+    debut = noms + e[0]
+    if runtime[debut:runtime.index(b"\0", debut)] in RESERVEES:
+        tete[e[4]:e[4] + e[5]] = runtime[e[4]:e[4] + e[5]]
+        masquees += 1
+if masquees != len(RESERVEES):
+    sys.exit(f"✗ le runtime porte {masquees} des {len(RESERVEES)} sections attendues")
+if bytes(tete) != runtime:
+    sys.exit(f"✗ {nom} ne commence pas par le runtime déposé")
+print(f"✓ {nom} commence par le runtime déposé, hors de ses {masquees} sections remplies à l'assemblage")
+PY
 }
 
 case "${1:-}" in
