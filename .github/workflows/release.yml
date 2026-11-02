@@ -6,7 +6,8 @@ name: Build & Release
 # L'APK sort non signé : la clé de signature n'entre jamais sur GitHub, l'APK signé est joint au
 # brouillon avant sa publication. Publier le brouillon met releases/latest.json à jour (latest-json.yml).
 # Les noms des fichiers viennent de packaging/fichiers.txt, et d'aucun autre endroit.
-# Aucun cache : un binaire de release se construit depuis le seul code étiqueté.
+# Aucun cache : un binaire de release se construit depuis le seul code étiqueté. Chaque fichier de
+# bureau porte une attestation de provenance, que latest-json.yml vérifie à la publication.
 on:
   push:
     tags: ['v*']
@@ -54,13 +55,22 @@ jobs:
             identical|behind) echo "✓ ${GITHUB_SHA} est sur master ($statut)" ;;
             *) echo "✗ ${GITHUB_SHA} n'est pas sur master ($statut)"; exit 1 ;;
           esac
-      - name: Les notes nomment chaque fichier de la liste
+      - name: La liste des fichiers, et les notes qui nomment chacun
         run: |
+          scripts/fichiers.sh verifier
+          noms=$(scripts/fichiers.sh noms '{{VERSION}}')
           manque=0
           while read -r nom; do
             grep -qF "$nom" packaging/notes-de-version.md || { echo "✗ les notes ne nomment pas $nom"; manque=1; }
-          done < <(scripts/fichiers.sh noms '{{VERSION}}')
+          done <<< "$noms"
+          grep -qF '{{EMPREINTE_APK}}' packaging/notes-de-version.md || { echo "✗ les notes ne portent pas l'empreinte de l'APK"; manque=1; }
           exit $manque
+      - name: L'empreinte du certificat de l'APK, une seule
+        run: |
+          n=$(grep -cE '^[0-9a-f]{64}$' packaging/empreinte-apk.txt || true)
+          [ "$n" -eq 1 ] || { echo "✗ packaging/empreinte-apk.txt : $n empreinte(s) au lieu d'une"; exit 1; }
+      - name: Cargo.lock est à jour
+        run: cargo metadata --locked --manifest-path src-tauri/Cargo.toml --format-version 1 > /dev/null
 
   bureau:
     name: ${{ matrix.nom }}
@@ -105,12 +115,18 @@ jobs:
       - name: Construire (universel)
         if: ${{ matrix.cible }}
         run: cargo tauri build --target "${{ matrix.cible }}"
-      - name: Windows sans installation
+      - name: Windows sans installation, nommé par la liste
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          NUMERO: ${{ needs.version.outputs.numero }}
+        run: echo "ZIP=$(scripts/fichiers.sh nom "$NUMERO" windows-portable)" >> "$GITHUB_ENV"
+      - name: Windows sans installation, l'archive
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $ver = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          Compress-Archive -Path src-tauri/target/release/rn2c.exe -DestinationPath "rn2c-v${ver}-portable-win64.zip"
+          New-Item -ItemType Directory -Force src-tauri/target/release/bundle/portable | Out-Null
+          Compress-Archive -Path src-tauri/target/release/rn2c.exe -DestinationPath "src-tauri/target/release/bundle/portable/$env:ZIP"
       - name: Chaque fichier de la liste, produit une fois
         shell: bash
         env:
@@ -206,7 +222,7 @@ jobs:
           pacman -Ql rn2c-bin | grep -q '/usr/bin/'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: aur
+          name: aur-${{ github.run_id }}
           path: |
             construction/PKGBUILD
             construction/.SRCINFO
@@ -221,8 +237,19 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Aucune release n'existe encore pour cette étiquette, brouillon compris
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ETIQUETTE: ${{ github.ref_name }}
+        run: |
+          if gh release view "$ETIQUETTE" > /dev/null 2>&1; then
+            echo "✗ une release existe déjà pour $ETIQUETTE : la supprimer avant de relancer"
+            exit 1
+          fi
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: bureau-*
@@ -232,12 +259,17 @@ jobs:
         env:
           NUMERO: ${{ needs.version.outputs.numero }}
         run: scripts/fichiers.sh controler "$NUMERO" "$PWD/fichiers" linux-x86_64 linux-arm64 windows-x86_64 macos-universel
+      - name: Attestation de provenance de chaque fichier de bureau
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: fichiers/*
       - name: Brouillon, fichiers de bureau joints
         env:
           GH_TOKEN: ${{ github.token }}
           ETIQUETTE: ${{ github.ref_name }}
           NUMERO: ${{ needs.version.outputs.numero }}
         run: |
-          sed "s/{{VERSION}}/$NUMERO/g" packaging/notes-de-version.md > notes.md
+          empreinte=$(grep -E '^[0-9a-f]{64}$' packaging/empreinte-apk.txt)
+          sed -e "s/{{VERSION}}/$NUMERO/g" -e "s/{{EMPREINTE_APK}}/$empreinte/g" packaging/notes-de-version.md > notes.md
           gh release create "$ETIQUETTE" --draft --verify-tag \
             --title "RN2C $NUMERO" --notes-file notes.md fichiers/*

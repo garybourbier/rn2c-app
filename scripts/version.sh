@@ -28,7 +28,8 @@ lire() {
 }
 
 # Trois nombres, sans zéro en tête (cargo le refuse). Le .msi borne majeur et mineur à 255 ; Tauri
-# calcule le versionCode Android en majeur·1000000 + mineur·1000 + correctif, donc correctif ≤ 999.
+# calcule le versionCode Android en majeur·1000000 + mineur·1000 + correctif, donc correctif ≤ 999,
+# et refuse 0.0.0.
 forme() {
   local v=$1 majeur mineur correctif
   if ! printf '%s' "$v" | grep -qE '^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'; then
@@ -38,6 +39,10 @@ forme() {
   IFS=. read -r majeur mineur correctif <<< "$v"
   if [ "$majeur" -gt 255 ] || [ "$mineur" -gt 255 ] || [ "$correctif" -gt 999 ]; then
     echo "✗ $v : 255.255.999 au plus (le .msi, puis le versionCode Android)" >&2
+    exit 1
+  fi
+  if [ "$v" = 0.0.0 ]; then
+    echo "✗ 0.0.0 : Tauri refuse un versionCode nul" >&2
     exit 1
   fi
 }

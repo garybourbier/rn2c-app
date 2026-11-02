@@ -3,9 +3,17 @@ target/
 *.apk
 *.idsig
 src-tauri/gen/
-*.jks
-*.p12
-*.pk8
-*.pem
-key.properties
-keystore.properties
+*.jks*
+*.keystore*
+*.p12*
+*.pk8*
+*.pem*
+*.properties
+# Les fichiers d'une release ne vivent pas dans le dépôt : la CI les construit.
+*.AppImage
+*.deb
+*.rpm
+*.msi
+*.exe
+*.dmg
+*.zip

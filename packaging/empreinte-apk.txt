@@ -1,0 +1,3 @@
+# L'empreinte SHA-256 du certificat qui signe l'APK (clé rn2c-release). latest-json.yml refuse un APK
+# signé par un autre certificat ; les notes de version la publient. Une ligne, 64 caractères hexadécimaux.
+a7511041a13b613a3473006f2441b3b7247bd9696807c22bd01160258aec44bf

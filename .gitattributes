@@ -1,0 +1,6 @@
+# Fins de ligne Unix partout, y compris sur la machine Windows de la CI : un script ou une liste
+# extraits en CRLF ne se lisent plus (un « \r » reste au bout de chaque nom).
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary
