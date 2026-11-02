@@ -14,10 +14,11 @@ Les listes lues sont celles de l'arbre où vit ce script : à la publication, l'
 Le fichier n'est écrit que si la release est celle du dépôt donné, porte exactement les fichiers de
 packaging/fichiers.txt, chacun à l'adresse de la release, ceux de bureau déposés par la CI et l'APK
 par un compte de packaging/mainteneurs.txt, et si ses notes nomment chaque fichier et disent, avant
-leur premier titre, ce qui change. Sinon le script échoue et n'écrit rien. Une release plus
-ancienne que celle du fichier ne le réécrit pas ; une release du même numéro le réécrit, ce qui
-répare une publication incomplète. Ce que le workflow vérifie en plus (provenance des fichiers de
-bureau, certificat et numéro de l'APK) est dans latest-json.yml.
+leur premier titre, ce qui change. Sinon le script échoue et n'écrit rien. Le fichier présent
+n'est pas lu : le workflow passe la plus haute release publiée, et le script la recopie même
+quand elle est plus basse que celle du fichier, ce qui répare une release retirée comme une
+publication incomplète. Ce que le workflow vérifie en plus (provenance des fichiers que la CI
+joint, certificat, numéro et contenu de l'APK) est dans latest-json.yml.
 """
 import json
 import os
@@ -34,10 +35,6 @@ A_ECRIRE = "À écrire avant de publier"
 def lignes(chemin):
     with open(os.path.join(RACINE, chemin), encoding="utf-8") as f:
         return [l.split() for l in f if l.strip() and not l.lstrip().startswith("#")]
-
-
-def numero(v):
-    return tuple(int(x) for x in v.split("."))
 
 
 def nettoyer(corps):
@@ -60,14 +57,6 @@ def main(chemin_release, chemin_latest, depot):
         sys.exit(f"✗ étiquette {etiquette} : pas de la forme vX.Y.Z")
     if release.get("draft") or release.get("prerelease"):
         sys.exit("✗ la release n'est pas publiée, ou c'est une préversion")
-
-    try:
-        actuelle = json.load(open(chemin_latest, encoding="utf-8"))["version"]
-    except FileNotFoundError:
-        actuelle = "0.0.0"
-    if numero(version) < numero(actuelle):
-        print(f"latest.json porte {actuelle} : {version} ne le remplace pas")
-        return
 
     texte = notes(release.get("body"))
     if not texte or A_ECRIRE in texte:
@@ -116,7 +105,7 @@ def main(chemin_release, chemin_latest, depot):
     with open(chemin_latest, "w", encoding="utf-8") as f:
         json.dump(contenu, f, ensure_ascii=False, indent=2)
         f.write("\n")
-    print(f"latest.json : {actuelle} → {version}, {len(liens)} fichiers")
+    print(f"latest.json : {version}, {len(liens)} fichiers")
 
 
 if __name__ == "__main__":
