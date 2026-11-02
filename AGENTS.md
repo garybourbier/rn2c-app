@@ -63,13 +63,30 @@ n'importe qui, historique compris.
 - L'APK sort de la CI **non signé** : la clé de signature n'entre jamais sur GitHub. Il se
   télécharge depuis le run de l'**étiquette**, son numéro se vérifie (`aapt dump badging`) avant
   la signature, et l'APK signé est joint au brouillon par un compte de `packaging/mainteneurs.txt`.
+  La CI joint elle-même le relevé de son contenu (`rn2c-vX.Y.Z-contenu-apk.txt`) : l'APK signé ne
+  peut en différer que par ses fichiers de signature.
 - Avant de publier : écrire, avant le premier titre des notes, ce que la version change, et
   pousser le paquet AUR `rn2c-bin`, dont le nom appartient au compte AUR d'un mainteneur.
-  `latest-json.yml` refuse une release incomplète, un fichier de bureau sans attestation du run de
-  l'étiquette, un APK d'un autre certificat ou d'un autre numéro ; il se relance à la main une
-  fois la release complétée, et écrit toujours la plus haute release publiée.
-- Aucune ref ne s'appelle `main` : les 0.2.x y cherchent leur mise à jour, et `latest-json.yml`
-  s'arrête si elle existe.
+  `latest-json.yml` refuse une release incomplète, un fichier joint par la CI sans attestation du
+  run de release.yml sur le commit de l'étiquette, un APK d'un autre certificat, d'un autre numéro
+  ou d'un autre contenu que le relevé ; il se relance à la main une fois la release complétée.
+- `latest.json` porte toujours la plus haute release publiée de la forme `vX.Y.Z`, même plus basse
+  que la précédente : pour **retirer** une release, la supprimer (ou la repasser en préversion),
+  puis relancer `latest-json.yml` à la main.
+- Aucune ref ne s'appelle `main` ni `main/…` : les 0.2.x y cherchent leur mise à jour, et
+  `latest-json.yml` s'arrête si l'une existe.
+- Une étiquette ne se pose **que sur un commit de `master`** : le workflow qui tourne est celui du
+  commit étiqueté, et la garde « sur master » vit dans ce même fichier. Posée sur le commit d'une
+  demande de fusion, l'étiquette ferait tourner le workflow de son auteur avec le jeton du dépôt.
+- Le brouillon attend le job Android de son run, qui produit l'APK non signé et le relevé de son
+  contenu : la publication exige les deux, une panne de la chaîne Android retient donc aussi les
+  fichiers de bureau.
+- Le paquet AUR se pousse avant la publication : un brouillon reconstruit change les sommes des
+  `.deb`, et le paquet refuse de s'installer jusqu'à ce qu'il soit poussé de nouveau.
+- Le nom `garybourbier/rn2c-app` est écrit dans les applis installées, et `latest.json` n'est pas
+  signé : **ne jamais renommer le compte ni le dépôt** sans avoir d'abord publié une version qui
+  lit le nouveau nom. Un nom libéré pourrait être repris par un tiers, qui proposerait ses
+  fichiers à toutes ces applis.
 - Ces contrôles vivent dans le dépôt : un compte qui peut écrire peut aussi les modifier, et un
   fichier remplacé après la publication n'est revu qu'à la publication suivante. Les mainteneurs,
   et les jetons qu'ils prêtent, sont de confiance.
