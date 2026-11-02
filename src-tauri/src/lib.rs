@@ -10,7 +10,7 @@ const ONION_HOST: &str =
 const LOCAL_PROXY_URL: &str = "http://127.0.0.1:8181/";
 
 const LATEST_JSON_URL: &str =
-    "https://raw.githubusercontent.com/garybourbier/rn2c-app/master/releases/latest.json";
+    "https://raw.githubusercontent.com/garybourbier/rn2c-app/refs/heads/master/releases/latest.json";
 
 #[derive(Clone, serde::Serialize)]
 struct TorEvent {

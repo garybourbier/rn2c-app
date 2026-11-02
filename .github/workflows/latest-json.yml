@@ -4,14 +4,17 @@ name: latest.json
 # master d'après la PLUS HAUTE release publiée de la forme vX.Y.Z, quel que soit l'ordre d'arrivée
 # des événements, y compris quand elle est plus basse que celle du fichier : retirer une release
 # (la supprimer, ou la repasser en préversion) puis relancer ce workflow à la main remet le fichier
-# sur la plus haute qui reste. C'est ce fichier que les applis de bureau, à partir de la 0.8.1,
-# lisent pour proposer la mise à jour.
+# sur la plus haute qui reste ; si elle précède cette chaîne (son arbre n'a pas
+# scripts/latest-json.py), le fichier est retiré, et aucune appli ne propose plus rien. C'est ce
+# fichier que les applis de bureau, à partir de la 0.8.1, lisent pour proposer la mise à jour.
+# Seul un compte de packaging/mainteneurs.txt (celui de master) publie ou relance.
 # Le script et les listes viennent de l'étiquette de cette release ; master ne sert qu'à choisir
-# la release (scripts/version.sh --forme) et à écrire.
-# Vérifié avant d'écrire : aucune ref « main » ni « main/… » (les 0.2.x y cherchent leur mise à
-# jour), l'étiquette sur master, l'attestation de chaque fichier que la CI joint (le run de
-# release.yml sur le commit de cette étiquette), le certificat, le numéro et le contenu de l'APK,
-# puis ce que scripts/latest-json.py contrôle.
+# la release (scripts/version.sh --forme), à nommer les mainteneurs et à écrire.
+# Vérifié avant d'écrire : aucune ref qui se lirait à la place de master/releases/latest.json ou
+# de main/releases/latest.json (les 0.2.x cherchent leur mise à jour sur main), l'étiquette sur
+# master, l'attestation de chaque fichier que la CI joint (le run de release.yml sur le commit de
+# cette étiquette), le certificat, le numéro et le contenu de l'APK, puis ce que
+# scripts/latest-json.py contrôle.
 # Ces contrôles vivent dans le dépôt : un compte qui peut écrire peut aussi les modifier, et un
 # fichier remplacé après la publication n'est revu qu'à la publication suivante.
 on:
@@ -35,24 +38,37 @@ jobs:
       attestations: read
     env:
       GH_TOKEN: ${{ github.token }}
-      ACTEUR: ${{ github.actor }}
+      ACTEUR: ${{ github.triggering_actor }}
       EVENEMENT: ${{ github.event_name }}
     steps:
       # raw.githubusercontent.com lit …/main/releases/latest.json dans la branche « main » comme
-      # dans une branche « main/releases » : les deux formes sont refusées.
-      - name: Aucune ref « main » ni « main/… »
+      # dans une branche « main/releases », et une étiquette du nom d'une branche peut passer avant
+      # elle : « main », « main/… », « master/… » et les étiquettes « main », « master » sont refusées.
+      - name: Aucune ref qui se lirait à la place de latest.json
         run: |
-          branches=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/heads/main" --jq '.[].ref')
-          etiquettes=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/main" --jq '.[].ref')
-          refs=$(printf '%s\n%s\n' "$branches" "$etiquettes" | grep -E '^refs/(heads|tags)/main(/|$)' || true)
+          refs=''
+          for prefixe in heads/main heads/master tags/main tags/master; do
+            trouvees=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/${prefixe}" --jq '.[].ref')
+            refs="$refs$trouvees"$'\n'
+          done
+          refs=$(printf '%s' "$refs" | grep -E '^refs/heads/main(/|$)|^refs/heads/master/|^refs/tags/(main|master)(/|$)' || true)
           if [ -n "$refs" ]; then
-            while read -r r; do echo "✗ $r existe : les applis 0.2.x installées liraient son latest.json"; done <<< "$refs"
+            while read -r r; do echo "✗ $r existe : une appli installée pourrait lire son latest.json"; done <<< "$refs"
             exit 1
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/heads/master
           path: master
+      - name: Celui qui publie est un mainteneur
+        run: |
+          mainteneurs=$(grep -vE '^[[:space:]]*(#|$)' master/packaging/mainteneurs.txt | awk '{print tolower($1)}')
+          acteur=$(printf '%s' "$ACTEUR" | tr '[:upper:]' '[:lower:]')
+          if ! grep -qxF "$acteur" <<< "$mainteneurs"; then
+            echo "✗ ${ACTEUR} n'est pas dans packaging/mainteneurs.txt : latest.json n'est pas écrit"
+            exit 1
+          fi
+          echo "✓ ${ACTEUR} est mainteneur"
       - name: La plus haute release publiée
         run: |
           test -x master/scripts/version.sh || { echo "✗ master ne porte pas scripts/version.sh"; exit 1; }
@@ -89,13 +105,23 @@ jobs:
             *) echo "✗ ${ETIQUETTE} (${sha}) n'est pas sur master ($statut)"; exit 1 ;;
           esac
           echo "COMMIT=$sha" >> "$GITHUB_ENV"
+      - name: La release vient-elle de cette chaîne ?
+        run: |
+          if [ -f etiquette/scripts/latest-json.py ]; then
+            echo "CHAINE=1" >> "$GITHUB_ENV"
+          else
+            echo "${ETIQUETTE} précède cette chaîne : latest.json sera retiré"
+            echo "CHAINE=0" >> "$GITHUB_ENV"
+          fi
       - name: Ce que le script contrôle, écrit à part
+        if: env.CHAINE == '1'
         run: |
           gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${ETIQUETTE}" > "$RUNNER_TEMP/release.json"
           mkdir -p "$RUNNER_TEMP/neuf"
           python3 -B etiquette/scripts/latest-json.py "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/neuf/latest.json" "$GITHUB_REPOSITORY"
       # L'attestation est liée au commit : une étiquette déplacée après la construction la fait refuser.
       - name: Chaque fichier que la CI joint vient du run de release.yml sur ce commit
+        if: env.CHAINE == '1'
         run: |
           mkdir -p "$RUNNER_TEMP/ci"
           artefacts=$(etiquette/scripts/fichiers.sh artefacts --ci)
@@ -109,6 +135,7 @@ jobs:
             echo "✓ $nom"
           done <<< "$noms"
       - name: L'APK porte le certificat publié, le numéro de la release et le contenu du relevé
+        if: env.CHAINE == '1'
         run: |
           apk=$(etiquette/scripts/fichiers.sh nom "$NUMERO" android-apk)
           releve=$(etiquette/scripts/fichiers.sh nom "$NUMERO" android-contenu)
@@ -130,17 +157,23 @@ jobs:
       - name: Commiter sur master
         working-directory: master
         run: |
-          mkdir -p releases
-          cp "$RUNNER_TEMP/neuf/latest.json" releases/latest.json
+          if [ "$CHAINE" = 1 ]; then
+            mkdir -p releases
+            cp "$RUNNER_TEMP/neuf/latest.json" releases/latest.json
+          else
+            rm -f releases/latest.json
+          fi
           if [ -z "$(git status --porcelain -- releases/latest.json)" ]; then
             echo "latest.json inchangé"
             exit 0
           fi
-          if [ "$EVENEMENT" = release ]; then quoi="publiée par ${ACTEUR}"; else quoi="réécrit à la main par ${ACTEUR}"; fi
+          if [ "$EVENEMENT" = release ]; then quoi="publiée par ${ACTEUR}"; else quoi="relancé à la main par ${ACTEUR}"; fi
+          titre="latest.json : ${ETIQUETTE}"
+          if [ "$CHAINE" != 1 ]; then titre="latest.json retiré : ${ETIQUETTE} précède la chaîne"; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add releases/latest.json
-          git commit -m "latest.json : ${ETIQUETTE}, ${quoi}"
+          git add -A -- releases/latest.json
+          git commit -m "${titre}, ${quoi}"
           # Un envoi humain sur master entre la lecture et l'écriture : on reprend sur la tête nouvelle.
           for essai in 1 2 3; do
             if git push origin HEAD:master; then exit 0; fi
