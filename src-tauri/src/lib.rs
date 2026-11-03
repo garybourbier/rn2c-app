@@ -93,12 +93,20 @@ async fn check_update() -> Option<UpdateInfo> {
     if is_newer_version(latest, env!("CARGO_PKG_VERSION")) {
         Some(UpdateInfo {
             version: latest.to_string(),
-            notes: info["notes"].as_str().unwrap_or("").to_string(),
+            notes: notes(&info),
             downloads: info["downloads"].clone(),
         })
     } else {
         None
     }
+}
+
+/// Le texte du bandeau, borné à la longueur que `scripts/latest-json.py` écrit : un latest.json
+/// modifié à la main n'en affiche pas davantage.
+const NOTES_MAX: usize = 300;
+
+fn notes(info: &serde_json::Value) -> String {
+    info["notes"].as_str().unwrap_or("").chars().take(NOTES_MAX).collect()
 }
 
 /// Trois nombres en chiffres ASCII, sans zéro en tête, rien d'autre : « 1.x.0 », « v0.8.2 »,
@@ -121,7 +129,16 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_newer_version;
+    use super::{is_newer_version, notes, NOTES_MAX};
+
+    #[test]
+    fn notes_bornees() {
+        let longues = "é".repeat(NOTES_MAX + 50);
+        assert_eq!(notes(&serde_json::json!({ "notes": longues })).chars().count(), NOTES_MAX);
+        assert_eq!(notes(&serde_json::json!({ "notes": "courtes" })), "courtes");
+        assert_eq!(notes(&serde_json::json!({ "notes": 42 })), "");
+        assert_eq!(notes(&serde_json::json!({})), "");
+    }
 
     #[test]
     fn plus_recente() {
