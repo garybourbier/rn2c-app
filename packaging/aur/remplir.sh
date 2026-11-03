@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Remplit le gabarit du PKGBUILD de rn2c-bin pour une version : le numéro, et la somme sha256 de
-# chacun des deux .deb que la release publie.
+# Remplit les gabarits du PKGBUILD et du .SRCINFO de rn2c-bin pour une version : le numéro, et la
+# somme sha256 de chacun des deux .deb que la release publie.
 #
 #   packaging/aur/remplir.sh X.Y.Z <dossier où chercher les .deb> <dossier de sortie>
 set -euo pipefail
@@ -26,7 +26,10 @@ aarch64=$(somme linux-deb-arm64)
 mkdir -p "$sortie"
 sed -e "s/@PKGVER@/$numero/" -e "s/@SHA256_X86_64@/$x86_64/" -e "s/@SHA256_AARCH64@/$aarch64/" \
   "$ici/PKGBUILD" > "$sortie/PKGBUILD"
-if grep -n '@[A-Z0-9_]*@' "$sortie/PKGBUILD"; then
+grep -v '^#' "$ici/SRCINFO" \
+  | sed -e "s/@PKGVER@/$numero/g" -e "s/@SHA256_X86_64@/$x86_64/" -e "s/@SHA256_AARCH64@/$aarch64/" \
+  > "$sortie/.SRCINFO"
+if grep -n '@[A-Z0-9_]*@' "$sortie/PKGBUILD" "$sortie/.SRCINFO"; then
   echo "✗ des champs du gabarit restent à remplir" >&2
   exit 1
 fi
@@ -36,5 +39,9 @@ for cle in linux-deb linux-deb-arm64; do
     echo "✗ le PKGBUILD ne télécharge pas $nom, le nom de packaging/fichiers.txt" >&2
     exit 1
   fi
+  if ! grep -qF "/v$numero/$nom" "$sortie/.SRCINFO"; then
+    echo "✗ le .SRCINFO ne nomme pas $nom, le nom de packaging/fichiers.txt" >&2
+    exit 1
+  fi
 done
-echo "PKGBUILD $numero : x86_64 $x86_64 · aarch64 $aarch64"
+echo "PKGBUILD et .SRCINFO $numero : x86_64 $x86_64 · aarch64 $aarch64"

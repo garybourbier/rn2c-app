@@ -1,0 +1,26 @@
+# Gabarit du .SRCINFO de rn2c-bin : packaging/aur/remplir.sh le remplit comme le PKGBUILD, sans ces
+# lignes de commentaire. La CI vérifie que makepkg --printsrcinfo le reproduit à l'identique.
+pkgbase = rn2c-bin
+	pkgdesc = RN2C radio app with built-in Tor (Arti)
+	pkgver = @PKGVER@
+	pkgrel = 1
+	url = https://github.com/garybourbier/rn2c-app
+	arch = x86_64
+	arch = aarch64
+	license = LicenseRef-unknown
+	depends = webkit2gtk-4.1
+	depends = gtk3
+	depends = gst-plugins-base
+	depends = gst-plugins-good
+	optdepends = gst-plugins-bad: more audio formats
+	optdepends = gst-libav: more audio formats
+	provides = rn2c
+	conflicts = rn2c
+	options = !strip
+	options = !debug
+	source_x86_64 = RN2C_@PKGVER@_amd64.deb::https://github.com/garybourbier/rn2c-app/releases/download/v@PKGVER@/RN2C_@PKGVER@_amd64.deb
+	sha256sums_x86_64 = @SHA256_X86_64@
+	source_aarch64 = RN2C_@PKGVER@_arm64.deb::https://github.com/garybourbier/rn2c-app/releases/download/v@PKGVER@/RN2C_@PKGVER@_arm64.deb
+	sha256sums_aarch64 = @SHA256_AARCH64@
+
+pkgname = rn2c-bin

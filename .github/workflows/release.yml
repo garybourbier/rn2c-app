@@ -11,9 +11,9 @@ name: Build & Release
 # l'AppImage télécharge à sa construction, et Gradle, sont figés à l'empreinte près
 # (packaging/outils-appimage.txt, packaging/gradle.txt) ; AGENTS.md dit ce qui ne l'est pas.
 # Le brouillon ne prend que les artefacts que chaque job de construction désigne par son
-# identifiant, et chaque fichier que la CI joint porte une attestation de provenance, que
-# latest-json.yml vérifie. Seule une étiquette poussée par un compte de
-# packaging/mainteneurs.txt prépare un brouillon.
+# identifiant, chacun réduit à ses propres fichiers, et chaque fichier que la CI joint porte une
+# attestation de provenance, que latest-json.yml vérifie. Seule une étiquette poussée par un
+# compte de packaging/mainteneurs.txt sur la tête de master prépare un brouillon.
 on:
   push:
     tags: ['v*']
@@ -63,15 +63,15 @@ jobs:
             exit 1
           fi
           echo "✓ ${ACTEUR} est mainteneur"
-      - name: L'étiquette poussée désigne un commit de master
+      - name: L'étiquette poussée désigne la tête de master
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           statut=$(gh api "repos/${GITHUB_REPOSITORY}/compare/master...${GITHUB_SHA}" --jq .status)
           case "$statut" in
-            identical|behind) echo "✓ ${GITHUB_SHA} est sur master ($statut)" ;;
-            *) echo "✗ ${GITHUB_SHA} n'est pas sur master ($statut)"; exit 1 ;;
+            identical) echo "✓ ${GITHUB_SHA} est la tête de master" ;;
+            *) echo "✗ ${GITHUB_SHA} n'est pas la tête de master ($statut)"; exit 1 ;;
           esac
       - name: La liste des fichiers, et les notes qui nomment chacun
         run: |
@@ -193,13 +193,14 @@ jobs:
           distribution: temurin
           java-version: 17
       # Le sdkmanager de l'image, plutôt qu'un outil de plus téléchargé sans empreinte.
-      - name: NDK 26, build-tools et plate-forme, par le sdkmanager de l'image
+      # La plate-forme est celle que demande le projet généré par Tauri, prise dans l'image.
+      - name: NDK 26 et build-tools, par le sdkmanager de l'image
         run: |
           outils="$ANDROID_HOME/cmdline-tools/latest/bin"
           test -x "$outils/sdkmanager" || { echo "✗ $outils/sdkmanager absent de l'image"; exit 1; }
           echo "$outils" >> "$GITHUB_PATH"
           "$outils/sdkmanager" --licenses < <(yes) > /dev/null
-          "$outils/sdkmanager" "ndk;26.3.11579264" "build-tools;34.0.0" "platforms;android-34"
+          "$outils/sdkmanager" "ndk;26.3.11579264" "build-tools;34.0.0"
       - name: NDK_HOME
         run: echo "NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
@@ -295,22 +296,33 @@ jobs:
               || { echo "✗ un artefact Linux n'a pas d'identifiant : sa construction a échoué"; exit 1; }
           done
           echo "ids=$X86_64,$ARM64" >> "$GITHUB_OUTPUT"
+      # Un dossier par artefact : un artefact qui porte un fichier d'un autre est refusé.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ steps.ids.outputs.ids }}
           path: linux
-          merge-multiple: true
-      - name: Remplir le PKGBUILD
+      - name: Chaque artefact Linux ne porte que ses fichiers
+        shell: bash
+        env:
+          NUMERO: ${{ needs.version.outputs.numero }}
+        run: |
+          for a in linux-x86_64 linux-arm64; do
+            scripts/fichiers.sh controler "$NUMERO" "$PWD/linux/ci-$a" "$a"
+          done
+      - name: Remplir le PKGBUILD et le .SRCINFO
         env:
           NUMERO: ${{ needs.version.outputs.numero }}
         run: packaging/aur/remplir.sh "$NUMERO" linux construction
-      - name: makepkg, puis installation par pacman
+      - name: makepkg, le .SRCINFO qu'il écrit, puis installation par pacman
         run: |
           pacman -Syu --noconfirm
           useradd -m constructeur
           find linux -name '*.deb' -exec cp {} construction/ \;
           chown -R constructeur construction
-          su constructeur -c 'cd construction && makepkg --nodeps --noconfirm && makepkg --printsrcinfo > .SRCINFO'
+          su constructeur -c 'cd construction && makepkg --nodeps --noconfirm \
+            && makepkg --printsrcinfo > srcinfo-makepkg'
+          diff -u construction/.SRCINFO construction/srcinfo-makepkg \
+            || { echo "✗ le .SRCINFO du gabarit n'est pas celui que makepkg écrit"; exit 1; }
           pacman -U --noconfirm construction/rn2c-bin-*.pkg.tar.zst
           pacman -Ql rn2c-bin | grep -q '/usr/bin/'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -363,11 +375,22 @@ jobs:
           done <<< "$artefacts"
           [ -n "$ids" ] || { echo "✗ aucun artefact à joindre"; exit 1; }
           echo "ids=$ids" >> "$GITHUB_OUTPUT"
+      # Un dossier par artefact : un artefact qui porte un fichier d'un autre est refusé, avant que
+      # rien ne soit rassemblé.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ steps.ids.outputs.ids }}
-          path: fichiers
-          merge-multiple: true
+          path: artefacts
+      - name: Chaque artefact ne porte que ses fichiers, puis ils sont rassemblés
+        env:
+          NUMERO: ${{ needs.version.outputs.numero }}
+        run: |
+          artefacts=$(scripts/fichiers.sh artefacts --ci)
+          mkdir fichiers
+          while read -r a; do
+            scripts/fichiers.sh controler "$NUMERO" "$PWD/artefacts/ci-$a" "$a"
+            cp -n "artefacts/ci-$a"/* fichiers/
+          done <<< "$artefacts"
       - name: Exactement les fichiers que la CI joint, d'après la liste
         env:
           NUMERO: ${{ needs.version.outputs.numero }}
