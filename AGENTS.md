@@ -24,14 +24,15 @@ n'importe qui, historique compris.
 - `ui/index.html` : l'écran de démarrage (journal Tor en direct).
 - `.github/workflows/release.yml` : construit tous les formats ; `latest-json.yml` : met
   `releases/latest.json` à jour quand une release est publiée.
-- `scripts/version.sh` : le numéro de l'appli, aux trois endroits qui le portent.
+- `scripts/version.sh` : le numéro de l'appli, aux trois endroits qui le portent ;
+  `scripts/release-courante.sh` : la release que `releases/latest.json` doit désigner.
 - `packaging/fichiers.txt` : les noms des fichiers d'une release, et d'aucun autre endroit ;
   `scripts/fichiers.sh` les lit pour la CI.
 - `packaging/mainteneurs.txt` : les comptes qui poussent l'étiquette, joignent l'APK signé et
   publient ;
   `packaging/empreinte-apk.txt` : l'empreinte du certificat qui le signe.
-- `packaging/aur/` : le gabarit du paquet AUR `rn2c-bin` ; `packaging/notes-de-version.md` : le
-  gabarit des notes de release.
+- `packaging/aur/` : les gabarits du `PKGBUILD` et du `.SRCINFO` du paquet AUR `rn2c-bin` ;
+  `packaging/notes-de-version.md` : le gabarit des notes de release.
 
 ## Pour tous, sans exception
 - **Aucun secret dans le dépôt** : ni keystore, ni APK signé, ni mot de passe, ni jeton, ni
@@ -59,71 +60,78 @@ n'importe qui, historique compris.
   outils que l'AppImage télécharge et Gradle sont figés à l'empreinte près
   (`packaging/outils-appimage.txt`, `packaging/gradle.txt`) ; le reste est dit plus bas. Le
   brouillon ne prend que les artefacts que chaque job de construction désigne par son
-  identifiant, et chaque fichier que la CI y joint porte une attestation de provenance. Une
+  identifiant, chacun dans son dossier et refusé s'il porte un fichier qui n'est pas à lui, et
+  chaque fichier que la CI y joint porte une attestation de provenance. Une
   release qui existe déjà pour l'étiquette, brouillon compris, arrête le run : la supprimer avant
   de relancer.
 - Une machine que GitHub annule (faute de capacité) laisse le run sans brouillon : relancer les
   jobs en échec (`gh run rerun <run> --failed`), le brouillon se crée à la relance.
 - Le numéro de l'appli est celui du serveur RN2C : `scripts/version.sh X.Y.Z`, puis la même
-  étiquette que le serveur. L'étiquette se pose sur un commit de `master`.
+  étiquette que le serveur. L'étiquette se pose sur la tête de `master`.
 - `master` reçoit un commit du robot à chaque publication (`releases/latest.json`) : une
   branche de travail fusionne `origin/master` avant la version suivante, et `master` n'est jamais
   réaligné de force.
 - L'APK sort de la CI **non signé** : la clé de signature n'entre jamais sur GitHub. Il se
-  télécharge depuis le run de l'**étiquette** (son nom porte le commit : celui de
-  `git rev-parse vX.Y.Z^{commit}`), dans les 90 jours que GitHub le garde ; son numéro se vérifie
-  (`aapt dump badging`) avant la signature, et l'APK signé est joint au brouillon par un compte de
-  `packaging/mainteneurs.txt`. La CI joint elle-même le relevé de son contenu
-  (`rn2c-vX.Y.Z-contenu-apk.txt`) : l'APK signé ne peut en différer que par ses fichiers de
-  signature. **Avant de publier**, le comparer au relevé du brouillon :
-  `gh release download vX.Y.Z -p 'rn2c-v*-contenu-apk.txt'`, puis
-  `python3 scripts/contenu-apk.py <APK signé> rn2c-vX.Y.Z-contenu-apk.txt` doit répondre ✓.
-- Avant de publier : écrire, avant le premier titre des notes, ce que la version change ;
-  pousser le paquet AUR `rn2c-bin`, dont le nom appartient au compte AUR d'un mainteneur ; puis
+  télécharge depuis le run de l'**étiquette**, désigné par son numéro — un autre run peut déposer
+  un artefact du même nom : `gh run download <run de l'étiquette> -n android-non-signe-<commit>`
+  (le commit : `git rev-parse vX.Y.Z^{commit}`), dans les 90 jours que GitHub le garde. La CI
+  joint elle-même au brouillon le relevé de son contenu (`rn2c-vX.Y.Z-contenu-apk.txt`). **Avant
+  de le signer**, le comparer à ce relevé : `gh release download vX.Y.Z -p 'rn2c-v*-contenu-apk.txt'`,
+  puis `python3 scripts/contenu-apk.py <APK non signé> rn2c-vX.Y.Z-contenu-apk.txt` doit répondre
+  ✓ ; vérifier son numéro (`aapt dump badging`). Puis le signer, refaire la même comparaison sur
+  l'APK signé, qui ne peut différer du relevé que par ses fichiers de signature, et le joindre au
+  brouillon depuis un compte de `packaging/mainteneurs.txt`.
+- Avant de publier : écrire, avant le premier titre des notes, ce que la version change ; puis
   contrôler le brouillon à blanc, `gh workflow run latest-json.yml -f brouillon=vX.Y.Z`, et ne
   publier qu'après son vert. Ce contrôle est celui de la publication, sans écriture :
   `latest-json.yml` refuse une release incomplète, un fichier joint par la CI sans attestation du
   run de release.yml sur le commit de l'étiquette, un APK d'un autre certificat, d'un autre numéro
   ou d'un autre contenu que le relevé ; il se relance à la main une fois la release complétée. Il
-  n'écrit que si celui qui publie, ou relance, est dans `packaging/mainteneurs.txt` de `master`.
-  Le déposant de l'APK, lui, est jugé par la liste de l'étiquette : un mainteneur ajouté joint
-  l'APK à partir de l'étiquette suivante.
-- Le PKGBUILD poussé sur AUR est celui de l'artefact `aur-<run>` du run de l'**étiquette**, et il
-  doit être identique à celui que régénère le mainteneur depuis les `.deb` du brouillon :
-  `gh release download vX.Y.Z -p '*.deb' -D debs`, puis
-  `packaging/aur/remplir.sh X.Y.Z debs local`, puis `diff local/PKGBUILD <artefact>/PKGBUILD`.
-- `latest.json` porte toujours la plus haute release publiée de la forme `vX.Y.Z`, même plus basse
-  que la précédente : pour **retirer** une release, la supprimer (ou la repasser en préversion),
-  puis relancer `latest-json.yml` à la main. Si la plus haute qui reste précède cette chaîne (une
-  0.2.x), `latest.json` est retiré de `master` : aucune appli ne propose plus de mise à jour. Si
-  elle échoue un contrôle, `latest.json` est retiré aussi dès qu'il désigne une release qui n'est
-  plus publiée.
+  n'écrit que si celui qui publie, ou relance, est dans `packaging/mainteneurs.txt` de `master`,
+  et son job d'écriture, relancé seul, refait ce contrôle et celui de la release courante. Le
+  déposant de l'APK, lui, est jugé par la liste de l'étiquette : un mainteneur ajouté joint l'APK
+  à partir de l'étiquette suivante.
+- **Juste après la publication** : pousser le paquet AUR `rn2c-bin`, dont le nom appartient au
+  compte AUR d'un mainteneur. Avant, ses `.deb` ne sont pas encore servis sous `vX.Y.Z` et le
+  paquet ne s'installe pas. Le `PKGBUILD` et le `.SRCINFO` poussés sont ceux de l'artefact
+  `aur-<run>` du run de l'**étiquette**, et doivent être identiques à ceux que régénère le
+  mainteneur depuis les `.deb` publiés : `gh release download vX.Y.Z -p '*.deb' -D debs`, puis
+  `packaging/aur/remplir.sh X.Y.Z debs local`, puis `diff local/PKGBUILD <artefact>/PKGBUILD` et
+  `diff local/.SRCINFO <artefact>/.SRCINFO`. La CI vérifie que `makepkg` écrit le même `.SRCINFO`
+  que le gabarit.
+- `latest.json` porte toujours la plus haute release publiée **de cette chaîne**
+  (`scripts/release-courante.sh`), même plus basse que la précédente : pour **retirer** une
+  release, la supprimer (ou la repasser en préversion), puis relancer `latest-json.yml` à la main.
+  Une release d'avant la chaîne (une 0.2.x, sans `scripts/latest-json.py`) est ignorée, même
+  numérotée au-dessus ; s'il ne reste aucune release de la chaîne, `latest.json` est retiré de
+  `master` : aucune appli ne propose plus de mise à jour. Si la release restante échoue un
+  contrôle, `latest.json` est retiré aussi dès qu'il désigne une release qui n'est plus publiée.
 - Aucune ref ne s'appelle `main`, `main/…` ou `master/…`, ni aucune étiquette `master` : les 0.2.x
   cherchent leur mise à jour sur `main`, les applis suivantes lisent `refs/heads/master`, et
   `latest-json.yml` s'arrête si l'une existe.
 - Une étiquette ne se pose **que sur la tête de `master`** : le workflow qui tourne est celui du
-  commit étiqueté, et ses gardes « sur master » et « poussée par un mainteneur » vivent dans ce
-  même fichier. Posée sur le commit d'une demande de fusion, l'étiquette ferait tourner le
+  commit étiqueté, et ses gardes « tête de master » et « poussée par un mainteneur » vivent dans
+  ce même fichier. Posée sur le commit d'une demande de fusion, l'étiquette ferait tourner le
   workflow de son auteur avec le jeton du dépôt ; posée sur un commit d'avant la 0.8.1, elle fait
   tourner l'ancien `release.yml`, qui publie directement, sans brouillon ni contrôle. Seule une
   règle d'étiquettes chez GitHub, réglage d'administration du dépôt, l'empêcherait.
 - Le brouillon attend le job Android de son run, qui produit l'APK non signé et le relevé de son
   contenu : la publication exige les deux, une panne de la chaîne Android retient donc aussi les
   fichiers de bureau.
-- Le paquet AUR se pousse avant la publication : un brouillon reconstruit change les sommes des
-  `.deb`, et le paquet refuse de s'installer jusqu'à ce qu'il soit poussé de nouveau.
 - Le nom `garybourbier/rn2c-app` est écrit dans les applis installées, et `latest.json` n'est pas
   signé : **ne jamais renommer le compte ni le dépôt** sans avoir d'abord publié une version qui
   lit le nouveau nom. Un nom libéré pourrait être repris par un tiers, qui proposerait ses
   fichiers à toutes ces applis.
 - Ce que le dépôt ne fige pas à l'empreinte : la chaîne Rust (`rustup`) et `tauri-cli`
   (crates.io, version fixée) ; WiX et NSIS, que `tauri-cli` vérifie à des empreintes qu'il porte ;
-  le NDK, les build-tools et la plate-forme Android, que le `sdkmanager` de l'image prend chez
-  Google ; le JDK et le reste de l'image des machines de GitHub ; les paquets Ubuntu et Arch
-  (dépôts signés par leur distribution) ; les dépendances que Gradle tire pour l'APK (Google
-  Maven, Maven Central, par HTTPS, sans fichier de vérification Gradle). Ce qui tourne dans le job
-  Android ne glisse pas ses fichiers parmi ceux de bureau : le brouillon et AUR ne prennent que
-  les artefacts désignés par les jobs de bureau, et refusent ceux qui ont été remplacés. Les quatre
+  le NDK et les build-tools Android, que le `sdkmanager` de l'image prend chez Google ; la
+  plate-forme Android que demande le projet généré par Tauri, le JDK et le reste de l'image des
+  machines de GitHub ; l'image `archlinux:base-devel` du job AUR (Docker Hub) ; les paquets Ubuntu
+  et Arch (dépôts signés par leur distribution) ; les dépendances que Gradle tire pour l'APK
+  (Google Maven, Maven Central, par HTTPS, sans fichier de vérification Gradle). Ce qui tourne dans
+  le job Android ne glisse pas ses fichiers parmi ceux de bureau : le brouillon et AUR ne prennent
+  que les artefacts désignés par les jobs de construction, chacun dans son dossier, refusent un
+  artefact qui porte un fichier qui n'est pas à lui, et ceux qui ont été remplacés. Les quatre
   machines de bureau, elles, rendent leurs identifiants par les sorties d'un même job : celle dont
   la construction serait compromise, qui tient déjà ses propres fichiers, pourrait aussi désigner
   un artefact à la place de celui d'une autre.
