@@ -1,13 +1,19 @@
 {
-  "version": "0.2.1",
-  "pub_date": "2026-07-16T00:00:00Z",
-  "notes": "Fix micro Mumble web sur desktop Linux/Windows/macOS (contexte sécurisé via proxy HTTP local).",
+  "version": "0.8.1",
+  "pub_date": "2026-11-03T21:25:05Z",
+  "notes": "Première version depuis la 0.2.1 : l'appli rejoint le serveur RN2C actuel et en porte le numéro (0.8.1). Elle existe désormais pour Linux ARM64, en .rpm et en .msi. Sur Android, une nouvelle clé de signature impose de désinstaller d'abord la 0.2.x.",
   "downloads": {
-    "linux-appimage": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.1/RN2C_0.2.1_amd64.AppImage",
-    "linux-deb": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.1/RN2C_0.2.1_amd64.deb",
-    "windows-nsis": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.1/RN2C_0.2.1_x64-setup.exe",
-    "windows-portable": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.1/rn2c-v0.2.1-portable-win64.zip",
-    "android-apk": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.1/rn2c-v0.2.1-signed.apk",
-    "macos-dmg": "https://github.com/garybourbier/rn2c-app/releases/download/v0.2.1/RN2C_0.2.1_universal.dmg"
+    "android-apk": "https://github.com/garybourbier/rn2c-app/releases/download/v0.8.1/rn2c-v0.8.1-signed.apk",
+    "android-contenu": "https://github.com/garybourbier/rn2c-app/releases/download/v0.8.1/rn2c-v0.8.1-contenu-apk.txt",
+    "linux-appimage": "https://github.com/garybourbier/rn2c-app/releases/download/v0.8.1/RN2C_0.8.1_amd64.AppImage",
+    "linux-appimage-arm64": "https://github.com/garybourbier/rn2c-app/releases/download/v0.8.1/RN2C_0.8.1_aarch64.AppImage",
+    "linux-deb": "https://github.com/garybourbier/rn2c-app/releases/download/v0.8.1/RN2C_0.8.1_amd64.deb",
+    "linux-deb-arm64": "https://github.com/garybourbier/rn2c-app/releases/download/v0.8.1/RN2C_0.8.1_arm64.deb",
+    "linux-rpm": "https://github.com/garybourbier/rn2c-app/releases/download/v0.8.1/RN2C-0.8.1-1.x86_64.rpm",
+    "linux-rpm-arm64": "https://github.com/garybourbier/rn2c-app/releases/download/v0.8.1/RN2C-0.8.1-1.aarch64.rpm",
+    "macos-dmg": "https://github.com/garybourbier/rn2c-app/releases/download/v0.8.1/RN2C_0.8.1_universal.dmg",
+    "windows-msi": "https://github.com/garybourbier/rn2c-app/releases/download/v0.8.1/RN2C_0.8.1_x64_en-US.msi",
+    "windows-nsis": "https://github.com/garybourbier/rn2c-app/releases/download/v0.8.1/RN2C_0.8.1_x64-setup.exe",
+    "windows-portable": "https://github.com/garybourbier/rn2c-app/releases/download/v0.8.1/rn2c-v0.8.1-portable-win64.zip"
   }
 }
