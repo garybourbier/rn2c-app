@@ -123,7 +123,10 @@ n'importe qui, historique compris.
   (dépôts signés par leur distribution) ; les dépendances que Gradle tire pour l'APK (Google
   Maven, Maven Central, par HTTPS, sans fichier de vérification Gradle). Ce qui tourne dans le job
   Android ne glisse pas ses fichiers parmi ceux de bureau : le brouillon et AUR ne prennent que
-  les artefacts désignés par les jobs de bureau, et refusent ceux qui ont été remplacés.
+  les artefacts désignés par les jobs de bureau, et refusent ceux qui ont été remplacés. Les quatre
+  machines de bureau, elles, rendent leurs identifiants par les sorties d'un même job : celle dont
+  la construction serait compromise, qui tient déjà ses propres fichiers, pourrait aussi désigner
+  un artefact à la place de celui d'une autre.
 - Ces contrôles vivent dans le dépôt : un compte qui peut écrire peut aussi les modifier, et un
   fichier remplacé après la publication n'est revu qu'à la publication suivante. Il peut aussi
   relancer une version passée d'un workflow (un lancement à la main sur une ancienne étiquette
