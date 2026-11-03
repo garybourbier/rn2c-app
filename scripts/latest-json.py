@@ -6,10 +6,12 @@ elles comparent « version » à leur propre numéro, montrent « notes », et u
 « downloads » qu'elles connaissent. Les 0.2.x le cherchent sur une branche main qui n'existe pas :
 elles ne voient aucune mise à jour.
 
-    scripts/latest-json.py <release.json> <releases/latest.json> <propriétaire/dépôt>
+    scripts/latest-json.py [--brouillon] <release.json> <releases/latest.json> <propriétaire/dépôt>
 
 <release.json> est la réponse de l'API GitHub pour la release (gh api …/releases/tags/vX.Y.Z).
 Les listes lues sont celles de l'arbre où vit ce script : à la publication, l'étiquette.
+Avec --brouillon, la release doit être un brouillon : les mêmes contrôles, sauf les adresses, qui
+ne prennent le nom de l'étiquette qu'à la publication (un brouillon est « untagged-… »).
 
 Le fichier n'est écrit que si la release est celle du dépôt donné, porte exactement les fichiers de
 packaging/fichiers.txt, chacun à l'adresse de la release, ceux de bureau déposés par la CI et l'APK
@@ -48,21 +50,26 @@ def notes(corps):
     return re.sub(r"[*_`>]", "", " ".join(avant.split()))
 
 
-def main(chemin_release, chemin_latest, depot):
+def main(chemin_release, chemin_latest, depot, brouillon=False):
     release = json.load(open(chemin_release, encoding="utf-8"))
     etiquette = release["tag_name"]
     version = etiquette[1:] if etiquette.startswith("v") else ""
     forme = subprocess.run([os.path.join(RACINE, "scripts", "version.sh"), "--forme", version])
     if forme.returncode != 0:
         sys.exit(f"✗ étiquette {etiquette} : pas de la forme vX.Y.Z")
-    if release.get("draft") or release.get("prerelease"):
-        sys.exit("✗ la release n'est pas publiée, ou c'est une préversion")
+    if release.get("prerelease"):
+        sys.exit("✗ la release est une préversion")
+    if bool(release.get("draft")) != brouillon:
+        sys.exit("✗ la release est un brouillon" if release.get("draft") else "✗ la release n'est pas un brouillon")
 
     texte = notes(release.get("body"))
     if not texte or A_ECRIRE in texte:
         sys.exit("✗ les notes ne disent pas, avant leur premier titre, ce que cette version change")
 
-    if release.get("html_url") != f"https://github.com/{depot}/releases/tag/{etiquette}":
+    # Un brouillon porte un nom provisoire dans ses adresses : seul ce segment est libre.
+    segment = "[^/]+" if brouillon else re.escape(etiquette)
+    page = f"https://github.com/{re.escape(depot)}/releases/tag/{segment}"
+    if not re.fullmatch(page, release.get("html_url") or ""):
         sys.exit(f"✗ la release n'est pas celle de {depot} : {release.get('html_url')}")
     mainteneurs = {l[0].lower() for l in lignes("packaging/mainteneurs.txt")}
     attendus = {modele.replace("{v}", version): (cle, artefact) for cle, artefact, modele in lignes("packaging/fichiers.txt")}
@@ -85,8 +92,9 @@ def main(chemin_release, chemin_latest, depot):
         elif auteur != ROBOT:
             fautes.append(f"{nom} : déposé par « {auteur} » et non par la CI")
         adresse = f"https://github.com/{depot}/releases/download/{etiquette}/{nom}"
-        if fichier["browser_download_url"] != adresse:
-            fautes.append(f"{nom} : adresse inattendue {fichier['browser_download_url']}")
+        attendue = f"https://github.com/{re.escape(depot)}/releases/download/{segment}/{re.escape(nom)}"
+        if not re.fullmatch(attendue, fichier.get("browser_download_url") or ""):
+            fautes.append(f"{nom} : adresse inattendue {fichier.get('browser_download_url')}")
         liens[cle] = adresse
     corps = nettoyer(release.get("body"))
     for nom in sorted(attendus):
@@ -97,7 +105,7 @@ def main(chemin_release, chemin_latest, depot):
 
     contenu = {
         "version": version,
-        "pub_date": release["published_at"],
+        "pub_date": release.get("published_at") or "",
         "notes": texte[:300],
         "downloads": dict(sorted(liens.items())),
     }
@@ -109,6 +117,10 @@ def main(chemin_release, chemin_latest, depot):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
+    arguments = sys.argv[1:]
+    brouillon = arguments[:1] == ["--brouillon"]
+    if brouillon:
+        arguments = arguments[1:]
+    if len(arguments) != 3:
         sys.exit(__doc__)
-    main(sys.argv[1], sys.argv[2], sys.argv[3])
+    main(*arguments, brouillon=brouillon)
