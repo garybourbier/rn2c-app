@@ -56,6 +56,13 @@ ecrire_awk() {
 # et refuse 0.0.0.
 forme() {
   local v=$1 majeur mineur correctif
+  # grep juge ligne par ligne : une seconde ligne passerait derrière une première juste.
+  case $v in
+    *$'\n'* | *$'\r'*)
+      echo "✗ le numéro tient sur une seule ligne" >&2
+      exit 1
+      ;;
+  esac
   if ! printf '%s' "$v" | grep -qE '^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'; then
     echo "✗ $v : trois nombres de trois chiffres au plus, sans zéro en tête, séparés par des points" >&2
     exit 1

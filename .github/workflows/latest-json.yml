@@ -1,25 +1,27 @@
 name: latest.json
 
 # À chaque release publiée (ou préversion promue en release), releases/latest.json est réécrit sur
-# master d'après la PLUS HAUTE release publiée de la forme vX.Y.Z, quel que soit l'ordre d'arrivée
-# des événements, y compris quand elle est plus basse que celle du fichier : retirer une release
-# (la supprimer, ou la repasser en préversion) puis relancer ce workflow à la main remet le fichier
-# sur la plus haute qui reste ; si elle précède cette chaîne (son arbre n'a pas
-# scripts/latest-json.py), le fichier est retiré, et aucune appli ne propose plus rien. C'est ce
-# fichier que les applis de bureau, à partir de la 0.8.1, lisent pour proposer la mise à jour.
+# master d'après la PLUS HAUTE release publiée de cette chaîne (scripts/release-courante.sh), quel
+# que soit l'ordre d'arrivée des événements, y compris quand elle est plus basse que celle du
+# fichier : retirer une release (la supprimer, ou la repasser en préversion) puis relancer ce
+# workflow à la main remet le fichier sur la plus haute qui reste. Une release d'avant la chaîne
+# (son arbre n'a pas scripts/latest-json.py) est ignorée, même numérotée au-dessus ; s'il n'en reste
+# aucune de la chaîne, le fichier est retiré, et aucune appli ne propose plus rien. C'est ce fichier
+# que les applis de bureau, à partir de la 0.8.1, lisent pour proposer la mise à jour.
 # Seul un compte de packaging/mainteneurs.txt (celui de master) y fait écrire une release.
 # Lancé à la main avec « brouillon: vX.Y.Z », il fait sur ce brouillon tous les contrôles de la
 # publication et n'écrit rien : à passer avant de publier.
 # Le script et les listes viennent de l'étiquette de cette release ; master ne sert qu'à choisir
-# la release (scripts/version.sh --forme), à nommer les mainteneurs et à écrire.
+# la release, à nommer les mainteneurs et à écrire.
 # Vérifié avant d'écrire : aucune ref qui se lirait à la place de master/releases/latest.json ou
 # de main/releases/latest.json (les 0.2.x cherchent leur mise à jour sur main), l'étiquette sur
 # master, l'attestation de chaque fichier que la CI joint (le run de release.yml sur le commit de
 # cette étiquette), le certificat, le numéro et le contenu de l'APK, puis ce que
 # scripts/latest-json.py contrôle.
-# Trois jobs : « contrôles » ne lance aucun outil téléchargé ; « apk » lance les outils Android,
-# sans droit d'écriture ; « écrire » ne lance que git. Un contrôle qui échoue n'écrit rien, sauf
-# un cas : « secours » retire latest.json s'il désigne une release qui n'est plus publiée.
+# « contrôles » ne lance que des outils de l'image, rien de téléchargé ; « écrire » ne lance que git
+# et refait, juste avant d'écrire, le contrôle du mainteneur et celui de la release courante : un
+# job relancé seul ne réécrit pas un état passé. Un contrôle qui échoue n'écrit rien, sauf un cas :
+# « secours » retire latest.json s'il désigne une release qui n'est plus publiée.
 # Ces contrôles vivent dans le dépôt : un compte qui peut écrire peut aussi les modifier, et un
 # fichier remplacé après la publication n'est revu qu'à la publication suivante.
 on:
@@ -35,14 +37,9 @@ on:
 permissions:
   contents: read
 
-# Un contrôle à blanc ne prend pas la place d'une écriture en attente.
-concurrency:
-  group: latest-json-${{ inputs.brouillon && 'blanc' || 'ecrire' }}
-  cancel-in-progress: false
-
 jobs:
   # Lire un brouillon demande le droit d'écrire du jeton : ce job ne lance aucun outil téléchargé,
-  # et ses extractions ne gardent pas le jeton.
+  # ses extractions ne gardent pas le jeton, et chaque étape qui appelle l'API le reçoit seule.
   controles:
     name: Contrôles
     runs-on: ubuntu-22.04
@@ -51,9 +48,8 @@ jobs:
       attestations: read
     outputs:
       etiquette: ${{ steps.choisir.outputs.etiquette }}
-      chaine: ${{ steps.chaine.outputs.chaine }}
+      chaine: ${{ steps.choisir.outputs.chaine }}
       latest: ${{ steps.script.outputs.latest }}
-      apk: ${{ steps.envoi-apk.outputs.artifact-id }}
     env:
       ACTEUR: ${{ github.triggering_actor }}
       BROUILLON: ${{ inputs.brouillon }}
@@ -89,19 +85,20 @@ jobs:
             exit 1
           fi
           echo "✓ ${ACTEUR} est mainteneur"
-      - name: La release — la plus haute publiée, ou le brouillon demandé
+      - name: La release — la plus haute de la chaîne, ou le brouillon demandé
         id: choisir
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          test -x master/scripts/version.sh || { echo "✗ master ne porte pas scripts/version.sh"; exit 1; }
+          test -x master/scripts/release-courante.sh \
+            || { echo "✗ master ne porte pas scripts/release-courante.sh"; exit 1; }
           if [ -n "$BROUILLON" ]; then
             if [ "${BROUILLON#v}" = "$BROUILLON" ] \
               || ! master/scripts/version.sh --forme "${BROUILLON#v}" 2> /dev/null; then
               echo "✗ brouillon « $BROUILLON » : pas de la forme vX.Y.Z"
               exit 1
             fi
-            # Le nom vient d'être borné à vX.Y.Z : il peut entrer dans le filtre.
+            # Le nom vient d'être borné à vX.Y.Z, sur une seule ligne : il peut entrer dans le filtre.
             ids=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
               --jq ".[] | select(.draft and .tag_name == \"$BROUILLON\") | .id")
             n=$(grep -c . <<< "$ids" || true)
@@ -110,34 +107,27 @@ jobs:
             etiquette=$BROUILLON
             echo "Le brouillon contrôlé à blanc : $etiquette"
           else
-            publiees=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
-              --jq '.[] | select(.draft | not) | select(.prerelease | not) | .tag_name')
-            valides=''
-            while read -r e; do
-              [ -n "$e" ] || continue
-              if [ "${e#v}" != "$e" ] && master/scripts/version.sh --forme "${e#v}" 2> /dev/null; then
-                valides="$valides$e"$'\n'
-              else
-                echo "release ignorée, pas de la forme vX.Y.Z : $e"
-              fi
-            done <<< "$publiees"
-            etiquette=$(printf '%s' "$valides" | sort -V | tail -n 1)
-            if [ -z "$etiquette" ]; then
-              echo "✗ aucune release publiée de la forme vX.Y.Z"
-              exit 1
+            etiquette=$(master/scripts/release-courante.sh)
+            if [ -n "$etiquette" ]; then
+              echo "La plus haute release de la chaîne : $etiquette"
+            else
+              echo "Aucune release publiée de cette chaîne : latest.json sera retiré"
             fi
-            echo "La plus haute release publiée : $etiquette"
           fi
+          if [ -n "$etiquette" ]; then chaine=1; else chaine=0; fi
           echo "etiquette=$etiquette" >> "$GITHUB_OUTPUT"
+          echo "chaine=$chaine" >> "$GITHUB_OUTPUT"
           echo "ETIQUETTE=$etiquette" >> "$GITHUB_ENV"
           echo "NUMERO=${etiquette#v}" >> "$GITHUB_ENV"
       # Qualifiée : une branche du même nom passerait sinon avant l'étiquette.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.choisir.outputs.chaine == '1'
         with:
           ref: refs/tags/${{ env.ETIQUETTE }}
           path: etiquette
           persist-credentials: false
-      - name: L'étiquette désigne un commit de master
+      - name: L'étiquette désigne un commit de master, et porte cette chaîne
+        if: steps.choisir.outputs.chaine == '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -147,22 +137,12 @@ jobs:
             identical|behind) echo "✓ ${ETIQUETTE} (${sha}) est sur master" ;;
             *) echo "✗ ${ETIQUETTE} (${sha}) n'est pas sur master ($statut)"; exit 1 ;;
           esac
+          test -f etiquette/scripts/latest-json.py \
+            || { echo "✗ ${ETIQUETTE} ne porte pas scripts/latest-json.py"; exit 1; }
           echo "COMMIT=$sha" >> "$GITHUB_ENV"
-      - name: La release vient-elle de cette chaîne ?
-        id: chaine
-        run: |
-          if [ -f etiquette/scripts/latest-json.py ]; then
-            echo "chaine=1" >> "$GITHUB_OUTPUT"
-          elif [ -n "$BROUILLON" ]; then
-            echo "✗ ${ETIQUETTE} précède cette chaîne : rien à contrôler à blanc"
-            exit 1
-          else
-            echo "${ETIQUETTE} précède cette chaîne : latest.json sera retiré"
-            echo "chaine=0" >> "$GITHUB_OUTPUT"
-          fi
       - name: Ce que le script contrôle, écrit à part
         id: script
-        if: steps.chaine.outputs.chaine == '1'
+        if: steps.choisir.outputs.chaine == '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -177,7 +157,7 @@ jobs:
           echo "latest=$(base64 -w0 "$RUNNER_TEMP/latest.json")" >> "$GITHUB_OUTPUT"
       # L'attestation est liée au commit : une étiquette déplacée après la construction la fait refuser.
       - name: Chaque fichier que la CI joint vient du run de release.yml sur ce commit
-        if: steps.chaine.outputs.chaine == '1'
+        if: steps.choisir.outputs.chaine == '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -192,88 +172,48 @@ jobs:
               --deny-self-hosted-runners > /dev/null
             echo "✓ $nom"
           done <<< "$noms"
-      # L'APK et le relevé attesté passent au job « apk » par un artefact, désigné par son identifiant.
-      - name: L'APK joint et le relevé attesté, pour le job des outils Android
-        if: steps.chaine.outputs.chaine == '1'
+      - name: L'APK joint
+        if: steps.choisir.outputs.chaine == '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p "$RUNNER_TEMP/apk"
           apk=$(etiquette/scripts/fichiers.sh nom "$NUMERO" android-apk)
-          releve=$(etiquette/scripts/fichiers.sh nom "$NUMERO" android-contenu)
-          gh release download "$ETIQUETTE" -R "$GITHUB_REPOSITORY" -p "$apk" -D "$RUNNER_TEMP/apk"
-          cp "$RUNNER_TEMP/ci/$releve" "$RUNNER_TEMP/apk/"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        id: envoi-apk
-        if: steps.chaine.outputs.chaine == '1'
-        with:
-          name: apk-a-controler
-          path: ${{ runner.temp }}/apk/*
-          if-no-files-found: error
-          retention-days: 1
-
-  # Les outils Android (build-tools 34.0.0, la version du job Android de release.yml) viennent du
-  # sdkmanager de l'image ; ce job n'a aucun droit d'écriture.
-  apk:
-    name: L'APK de la release
-    needs: controles
-    if: needs.controles.outputs.chaine == '1'
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-    env:
-      ETIQUETTE: ${{ needs.controles.outputs.etiquette }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: refs/tags/${{ needs.controles.outputs.etiquette }}
-          path: etiquette
-          persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          artifact-ids: ${{ needs.controles.outputs.apk }}
-          path: apk
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
-        with:
-          distribution: temurin
-          java-version: 17
-      - name: build-tools 34.0.0, par le sdkmanager de l'image
-        run: |
-          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          test -x "$sdkmanager" || { echo "✗ $sdkmanager absent de l'image"; exit 1; }
-          "$sdkmanager" --licenses < <(yes) > /dev/null
-          "$sdkmanager" "build-tools;34.0.0"
+          gh release download "$ETIQUETTE" -R "$GITHUB_REPOSITORY" -p "$apk" -D "$RUNNER_TEMP"
+      # apksigner et aapt de l'image, à la version du job Android de release.yml : rien n'est
+      # téléchargé dans ce job, qui tient le droit d'écrire.
       - name: L'APK porte le certificat publié, le numéro de la release et le contenu du relevé
+        if: steps.choisir.outputs.chaine == '1'
         run: |
-          numero=${ETIQUETTE#v}
-          apk=apk/$(etiquette/scripts/fichiers.sh nom "$numero" android-apk)
-          releve=apk/$(etiquette/scripts/fichiers.sh nom "$numero" android-contenu)
+          apk="$RUNNER_TEMP/$(etiquette/scripts/fichiers.sh nom "$NUMERO" android-apk)"
+          releve="$RUNNER_TEMP/ci/$(etiquette/scripts/fichiers.sh nom "$NUMERO" android-contenu)"
           outils="$ANDROID_HOME/build-tools/34.0.0"
-          test -x "$outils/apksigner" && test -x "$outils/aapt" || { echo "✗ apksigner ou aapt absent de $outils"; exit 1; }
+          test -x "$outils/apksigner" && test -x "$outils/aapt" \
+            || { echo "✗ apksigner ou aapt 34.0.0 absent de l'image : rien n'est téléchargé ici"; exit 1; }
           empreinte=$(grep -E '^[0-9a-f]{64}$' etiquette/packaging/empreinte-apk.txt)
           certificats=$("$outils/apksigner" verify --print-certs "$apk")
           [ "$(printf '%s\n' "$certificats" | grep -c 'certificate SHA-256 digest:')" -eq 1 ] \
             || { echo "✗ $apk : un seul signataire attendu"; exit 1; }
           printf '%s\n' "$certificats" | grep -qF "certificate SHA-256 digest: $empreinte" \
             || { echo "✗ $apk n'est pas signé par le certificat de packaging/empreinte-apk.txt"; exit 1; }
-          IFS=. read -r majeur mineur correctif <<< "$numero"
+          IFS=. read -r majeur mineur correctif <<< "$NUMERO"
           code=$((majeur * 1000000 + mineur * 1000 + correctif))
           "$outils/aapt" dump badging "$apk" | head -n 1 \
-            | grep -qF "versionCode='$code' versionName='$numero'" \
-            || { echo "✗ $apk ne porte pas versionCode $code et versionName $numero"; exit 1; }
+            | grep -qF "versionCode='$code' versionName='$NUMERO'" \
+            || { echo "✗ $apk ne porte pas versionCode $code et versionName $NUMERO"; exit 1; }
           echo "✓ $apk : certificat et numéro"
           python3 -B etiquette/scripts/contenu-apk.py "$apk" "$releve"
 
+  # Une file par acteur : un run refusé n'y entre jamais, et ne prend donc la place de personne.
   ecrire:
     name: Écrire sur master
-    needs: [controles, apk]
-    if: >-
-      ${{ !cancelled() && !inputs.brouillon && needs.controles.result == 'success'
-      && (needs.apk.result == 'success'
-      || (needs.apk.result == 'skipped' && needs.controles.outputs.chaine == '0')) }}
+    needs: controles
+    if: ${{ !cancelled() && !inputs.brouillon && needs.controles.result == 'success' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+    concurrency:
+      group: latest-json-ecrire-${{ github.triggering_actor }}
+      cancel-in-progress: false
     env:
       ACTEUR: ${{ github.triggering_actor }}
       EVENEMENT: ${{ github.event_name }}
@@ -284,6 +224,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/heads/master
+      # Relancé seul, ce job reprend les sorties d'un run passé : il ne les écrit que si celui qui
+      # relance est mainteneur et si la release courante est toujours celle-là.
+      - name: Le mainteneur et la release courante, revus avant d'écrire
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mainteneurs=$(grep -vE '^[[:space:]]*(#|$)' packaging/mainteneurs.txt | awk '{print tolower($1)}')
+          acteur=$(printf '%s' "$ACTEUR" | tr '[:upper:]' '[:lower:]')
+          grep -qxF "$acteur" <<< "$mainteneurs" \
+            || { echo "✗ ${ACTEUR} n'est pas dans packaging/mainteneurs.txt : latest.json n'est pas écrit"; exit 1; }
+          courante=$(scripts/release-courante.sh)
+          if [ "$courante" != "$ETIQUETTE" ]; then
+            echo "✗ la release courante est « ${courante:-aucune} »,"
+            echo "  ce run a contrôlé « ${ETIQUETTE:-aucune} » : rien n'est écrit"
+            exit 1
+          fi
+          echo "✓ ${ACTEUR} est mainteneur, et « ${ETIQUETTE:-aucune} » est toujours la release courante"
       - name: Commiter sur master
         run: |
           if [ "$CHAINE" = 1 ]; then
@@ -298,7 +255,7 @@ jobs:
           fi
           if [ "$EVENEMENT" = release ]; then quoi="publiée par ${ACTEUR}"; else quoi="relancé à la main par ${ACTEUR}"; fi
           titre="latest.json : ${ETIQUETTE}"
-          if [ "$CHAINE" != 1 ]; then titre="latest.json retiré : ${ETIQUETTE} précède la chaîne"; fi
+          if [ "$CHAINE" != 1 ]; then titre="latest.json retiré : aucune release de la chaîne"; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A -- releases/latest.json
@@ -316,11 +273,14 @@ jobs:
   # publiée (supprimée, ou repassée en préversion), il est retiré, quel que soit l'acteur.
   secours:
     name: Secours — latest.json sur une release retirée
-    needs: [controles, apk, ecrire]
+    needs: [controles, ecrire]
     if: ${{ failure() && !inputs.brouillon }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+    concurrency:
+      group: latest-json-secours-${{ github.triggering_actor }}
+      cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
     steps:

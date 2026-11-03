@@ -17,7 +17,7 @@ Le fichier n'est écrit que si la release est celle du dépôt donné, porte exa
 packaging/fichiers.txt, chacun à l'adresse de la release, ceux de bureau déposés par la CI et l'APK
 par un compte de packaging/mainteneurs.txt, et si ses notes nomment chaque fichier et disent, avant
 leur premier titre, ce qui change. Sinon le script échoue et n'écrit rien. Le fichier présent
-n'est pas lu : le workflow passe la plus haute release publiée, et le script la recopie même
+n'est pas lu : le workflow passe la plus haute release de la chaîne, et le script la recopie même
 quand elle est plus basse que celle du fichier, ce qui répare une release retirée comme une
 publication incomplète. Ce que le workflow vérifie en plus (provenance des fichiers que la CI
 joint, certificat, numéro et contenu de l'APK) est dans latest-json.yml.
