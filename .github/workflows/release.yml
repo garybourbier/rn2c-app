@@ -8,9 +8,12 @@ name: Build & Release
 # brouillon met releases/latest.json à jour (latest-json.yml).
 # Les noms des fichiers viennent de packaging/fichiers.txt, et d'aucun autre endroit.
 # Aucun cache : un binaire de release se construit depuis le seul code étiqueté. Les outils que
-# l'AppImage télécharge à sa construction sont déposés d'avance, à l'empreinte près
-# (packaging/outils-appimage.txt). Chaque fichier que la CI joint porte une attestation de
-# provenance, que latest-json.yml vérifie à la publication.
+# l'AppImage télécharge à sa construction, et Gradle, sont figés à l'empreinte près
+# (packaging/outils-appimage.txt, packaging/gradle.txt) ; AGENTS.md dit ce qui ne l'est pas.
+# Le brouillon ne prend que les artefacts que chaque job de construction désigne par son
+# identifiant, et chaque fichier que la CI joint porte une attestation de provenance, que
+# latest-json.yml vérifie. Seule une étiquette poussée par un compte de
+# packaging/mainteneurs.txt prépare un brouillon.
 on:
   push:
     tags: ['v*']
@@ -48,6 +51,18 @@ jobs:
             numero=$(scripts/version.sh --verifier)
           fi
           echo "numero=$numero" >> "$GITHUB_OUTPUT"
+      - name: L'étiquette est poussée par un mainteneur
+        if: github.event_name == 'push'
+        env:
+          ACTEUR: ${{ github.triggering_actor }}
+        run: |
+          mainteneurs=$(grep -vE '^[[:space:]]*(#|$)' packaging/mainteneurs.txt | awk '{print tolower($1)}')
+          acteur=$(printf '%s' "$ACTEUR" | tr '[:upper:]' '[:lower:]')
+          if ! grep -qxF "$acteur" <<< "$mainteneurs"; then
+            echo "✗ ${ACTEUR} n'est pas dans packaging/mainteneurs.txt : aucun brouillon"
+            exit 1
+          fi
+          echo "✓ ${ACTEUR} est mainteneur"
       - name: L'étiquette poussée désigne un commit de master
         if: github.event_name == 'push'
         env:
@@ -75,9 +90,16 @@ jobs:
       - name: Cargo.lock est à jour
         run: cargo metadata --locked --manifest-path src-tauri/Cargo.toml --format-version 1 > /dev/null
 
+  # Chaque machine rend l'identifiant de son artefact sous le nom de cet artefact : le brouillon et
+  # AUR ne téléchargent que ces identifiants, jamais un motif qu'un autre job pourrait remplir.
   bureau:
     name: ${{ matrix.nom }}
     needs: version
+    outputs:
+      linux-x86_64: ${{ steps.artefact.outputs.linux-x86_64 }}
+      linux-arm64: ${{ steps.artefact.outputs.linux-arm64 }}
+      windows-x86_64: ${{ steps.artefact.outputs.windows-x86_64 }}
+      macos-universel: ${{ steps.artefact.outputs.macos-universel }}
     strategy:
       fail-fast: false
       matrix:
@@ -145,24 +167,39 @@ jobs:
           NUMERO: ${{ needs.version.outputs.numero }}
         run: scripts/fichiers.sh rassembler "$ARTEFACT" "$NUMERO" sortie
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: envoi
         with:
           name: ci-${{ matrix.artefact }}
           path: sortie/*
           if-no-files-found: error
+      - name: L'identifiant de l'artefact, rendu par le job
+        id: artefact
+        shell: bash
+        env:
+          ARTEFACT: ${{ matrix.artefact }}
+          ID: ${{ steps.envoi.outputs.artifact-id }}
+        run: echo "$ARTEFACT=$ID" >> "$GITHUB_OUTPUT"
 
   android:
     name: Android (APK non signé)
     needs: version
     runs-on: ubuntu-22.04
+    outputs:
+      android-contenu: ${{ steps.envoi-releve.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
-      - name: NDK 26
-        run: sdkmanager "ndk;26.3.11579264" "build-tools;34.0.0" "platforms;android-34"
+      # Le sdkmanager de l'image, plutôt qu'un outil de plus téléchargé sans empreinte.
+      - name: NDK 26, build-tools et plate-forme, par le sdkmanager de l'image
+        run: |
+          outils="$ANDROID_HOME/cmdline-tools/latest/bin"
+          test -x "$outils/sdkmanager" || { echo "✗ $outils/sdkmanager absent de l'image"; exit 1; }
+          echo "$outils" >> "$GITHUB_PATH"
+          "$outils/sdkmanager" --licenses < <(yes) > /dev/null
+          "$outils/sdkmanager" "ndk;26.3.11579264" "build-tools;34.0.0" "platforms;android-34"
       - name: NDK_HOME
         run: echo "NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
@@ -230,13 +267,14 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: envoi-releve
         with:
           name: ci-android-contenu
           path: sortie/*
           if-no-files-found: error
 
-  # Il ne lit que les deux .deb : un échec de macOS ou de Windows ne l'arrête pas, et remplir.sh
-  # refuse s'il manque l'un des deux.
+  # Il ne lit que les deux .deb : un échec de macOS ou de Windows ne l'arrête pas ; il refuse s'il
+  # manque l'un des deux artefacts Linux.
   aur:
     name: Paquet AUR (makepkg)
     needs: [version, bureau]
@@ -245,9 +283,21 @@ jobs:
     container: archlinux:base-devel
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Les deux artefacts Linux, désignés par leurs jobs
+        id: ids
+        shell: bash
+        env:
+          X86_64: ${{ needs.bureau.outputs.linux-x86_64 }}
+          ARM64: ${{ needs.bureau.outputs.linux-arm64 }}
+        run: |
+          for id in "$X86_64" "$ARM64"; do
+            [[ $id =~ ^[0-9]+$ ]] \
+              || { echo "✗ un artefact Linux n'a pas d'identifiant : sa construction a échoué"; exit 1; }
+          done
+          echo "ids=$X86_64,$ARM64" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: ci-linux-*
+          artifact-ids: ${{ steps.ids.outputs.ids }}
           path: linux
           merge-multiple: true
       - name: Remplir le PKGBUILD
@@ -293,9 +343,29 @@ jobs:
             echo "✗ une release existe déjà pour $ETIQUETTE : la supprimer avant de relancer"
             exit 1
           fi
+      - name: Les artefacts que la CI joint, désignés par les jobs qui les ont envoyés
+        id: ids
+        env:
+          ID_linux_x86_64: ${{ needs.bureau.outputs.linux-x86_64 }}
+          ID_linux_arm64: ${{ needs.bureau.outputs.linux-arm64 }}
+          ID_windows_x86_64: ${{ needs.bureau.outputs.windows-x86_64 }}
+          ID_macos_universel: ${{ needs.bureau.outputs.macos-universel }}
+          ID_android_contenu: ${{ needs.android.outputs.android-contenu }}
+        # Un identifiant vide ferait télécharger tous les artefacts du run : chacun est exigé.
+        run: |
+          artefacts=$(scripts/fichiers.sh artefacts --ci)
+          ids=''
+          while read -r a; do
+            variable="ID_${a//-/_}"
+            id=${!variable:-}
+            [[ $id =~ ^[0-9]+$ ]] || { echo "✗ $a : aucun identifiant d'artefact rendu par son job"; exit 1; }
+            ids="${ids:+$ids,}$id"
+          done <<< "$artefacts"
+          [ -n "$ids" ] || { echo "✗ aucun artefact à joindre"; exit 1; }
+          echo "ids=$ids" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: ci-*
+          artifact-ids: ${{ steps.ids.outputs.ids }}
           path: fichiers
           merge-multiple: true
       - name: Exactement les fichiers que la CI joint, d'après la liste
