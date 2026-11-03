@@ -27,7 +27,8 @@ n'importe qui, historique compris.
 - `scripts/version.sh` : le numéro de l'appli, aux trois endroits qui le portent.
 - `packaging/fichiers.txt` : les noms des fichiers d'une release, et d'aucun autre endroit ;
   `scripts/fichiers.sh` les lit pour la CI.
-- `packaging/mainteneurs.txt` : les comptes qui joignent l'APK signé ;
+- `packaging/mainteneurs.txt` : les comptes qui poussent l'étiquette, joignent l'APK signé et
+  publient ;
   `packaging/empreinte-apk.txt` : l'empreinte du certificat qui le signe.
 - `packaging/aur/` : le gabarit du paquet AUR `rn2c-bin` ; `packaging/notes-de-version.md` : le
   gabarit des notes de release.
@@ -46,17 +47,23 @@ n'importe qui, historique compris.
   périphérique audio : il identifie l'utilisateur.
 - Publier une version (étiquette, release, APK distribué) est un acte d'un mainteneur
   (Gary, Pierroons), jamais d'un agent.
+- `releases/latest.json` n'est écrit que par `latest-json.yml` : personne, agent ou humain, ne le
+  modifie à la main. Les applis installées l'affichent tel quel.
 - Commentaires et messages de commit en français, au niveau du code voisin.
 
 ## Construire
 - Bureau : `cargo tauri build` depuis la racine.
 - Android : `cargo tauri android build` (SDK + NDK requis ; la signature se fait hors dépôt).
 - La CI ne construit que sur une étiquette `vX.Y.Z` poussée, qui prépare une release en
-  brouillon, ou lancée à la main, qui construit sans créer de release. Elle n'a aucun cache ; ce
-  qu'elle télécharge pour construire l'AppImage et l'APK est figé à l'empreinte près
-  (`packaging/outils-appimage.txt`, `packaging/gradle.txt`). Chaque fichier que la CI joint au
-  brouillon porte une attestation de provenance. Une release qui
-  existe déjà pour l'étiquette, brouillon compris, arrête le run : la supprimer avant de relancer.
+  brouillon, ou lancée à la main, qui construit sans créer de release. Elle n'a aucun cache. Les
+  outils que l'AppImage télécharge et Gradle sont figés à l'empreinte près
+  (`packaging/outils-appimage.txt`, `packaging/gradle.txt`) ; le reste est dit plus bas. Le
+  brouillon ne prend que les artefacts que chaque job de construction désigne par son
+  identifiant, et chaque fichier que la CI y joint porte une attestation de provenance. Une
+  release qui existe déjà pour l'étiquette, brouillon compris, arrête le run : la supprimer avant
+  de relancer.
+- Une machine que GitHub annule (faute de capacité) laisse le run sans brouillon : relancer les
+  jobs en échec (`gh run rerun <run> --failed`), le brouillon se crée à la relance.
 - Le numéro de l'appli est celui du serveur RN2C : `scripts/version.sh X.Y.Z`, puis la même
   étiquette que le serveur. L'étiquette se pose sur un commit de `master`.
 - `master` reçoit un commit du robot à chaque publication (`releases/latest.json`) : une
@@ -71,22 +78,35 @@ n'importe qui, historique compris.
   signature. **Avant de publier**, le comparer au relevé du brouillon :
   `gh release download vX.Y.Z -p 'rn2c-v*-contenu-apk.txt'`, puis
   `python3 scripts/contenu-apk.py <APK signé> rn2c-vX.Y.Z-contenu-apk.txt` doit répondre ✓.
-- Avant de publier : écrire, avant le premier titre des notes, ce que la version change, et
-  pousser le paquet AUR `rn2c-bin`, dont le nom appartient au compte AUR d'un mainteneur.
+- Avant de publier : écrire, avant le premier titre des notes, ce que la version change ;
+  pousser le paquet AUR `rn2c-bin`, dont le nom appartient au compte AUR d'un mainteneur ; puis
+  contrôler le brouillon à blanc, `gh workflow run latest-json.yml -f brouillon=vX.Y.Z`, et ne
+  publier qu'après son vert. Ce contrôle est celui de la publication, sans écriture :
   `latest-json.yml` refuse une release incomplète, un fichier joint par la CI sans attestation du
   run de release.yml sur le commit de l'étiquette, un APK d'un autre certificat, d'un autre numéro
   ou d'un autre contenu que le relevé ; il se relance à la main une fois la release complétée. Il
-  n'écrit que si celui qui publie, ou relance, est dans `packaging/mainteneurs.txt`.
+  n'écrit que si celui qui publie, ou relance, est dans `packaging/mainteneurs.txt` de `master`.
+  Le déposant de l'APK, lui, est jugé par la liste de l'étiquette : un mainteneur ajouté joint
+  l'APK à partir de l'étiquette suivante.
+- Le PKGBUILD poussé sur AUR est celui de l'artefact `aur-<run>` du run de l'**étiquette**, et il
+  doit être identique à celui que régénère le mainteneur depuis les `.deb` du brouillon :
+  `gh release download vX.Y.Z -p '*.deb' -D debs`, puis
+  `packaging/aur/remplir.sh X.Y.Z debs local`, puis `diff local/PKGBUILD <artefact>/PKGBUILD`.
 - `latest.json` porte toujours la plus haute release publiée de la forme `vX.Y.Z`, même plus basse
   que la précédente : pour **retirer** une release, la supprimer (ou la repasser en préversion),
   puis relancer `latest-json.yml` à la main. Si la plus haute qui reste précède cette chaîne (une
-  0.2.x), `latest.json` est retiré de `master` : aucune appli ne propose plus de mise à jour.
+  0.2.x), `latest.json` est retiré de `master` : aucune appli ne propose plus de mise à jour. Si
+  elle échoue un contrôle, `latest.json` est retiré aussi dès qu'il désigne une release qui n'est
+  plus publiée.
 - Aucune ref ne s'appelle `main`, `main/…` ou `master/…`, ni aucune étiquette `master` : les 0.2.x
   cherchent leur mise à jour sur `main`, les applis suivantes lisent `refs/heads/master`, et
   `latest-json.yml` s'arrête si l'une existe.
-- Une étiquette ne se pose **que sur un commit de `master`** : le workflow qui tourne est celui du
-  commit étiqueté, et la garde « sur master » vit dans ce même fichier. Posée sur le commit d'une
-  demande de fusion, l'étiquette ferait tourner le workflow de son auteur avec le jeton du dépôt.
+- Une étiquette ne se pose **que sur la tête de `master`** : le workflow qui tourne est celui du
+  commit étiqueté, et ses gardes « sur master » et « poussée par un mainteneur » vivent dans ce
+  même fichier. Posée sur le commit d'une demande de fusion, l'étiquette ferait tourner le
+  workflow de son auteur avec le jeton du dépôt ; posée sur un commit d'avant la 0.8.1, elle fait
+  tourner l'ancien `release.yml`, qui publie directement, sans brouillon ni contrôle. Seule une
+  règle d'étiquettes chez GitHub, réglage d'administration du dépôt, l'empêcherait.
 - Le brouillon attend le job Android de son run, qui produit l'APK non signé et le relevé de son
   contenu : la publication exige les deux, une panne de la chaîne Android retient donc aussi les
   fichiers de bureau.
@@ -96,9 +116,14 @@ n'importe qui, historique compris.
   signé : **ne jamais renommer le compte ni le dépôt** sans avoir d'abord publié une version qui
   lit le nouveau nom. Un nom libéré pourrait être repris par un tiers, qui proposerait ses
   fichiers à toutes ces applis.
-- Ce qui n'est pas figé à l'empreinte : les paquets Ubuntu et Arch (dépôts signés par leur
-  distribution), et les dépendances que Gradle tire pour l'APK (Google Maven, Maven Central, par
-  HTTPS, sans fichier de vérification Gradle).
+- Ce que le dépôt ne fige pas à l'empreinte : la chaîne Rust (`rustup`) et `tauri-cli`
+  (crates.io, version fixée) ; WiX et NSIS, que `tauri-cli` vérifie à des empreintes qu'il porte ;
+  le NDK, les build-tools et la plate-forme Android, que le `sdkmanager` de l'image prend chez
+  Google ; le JDK et le reste de l'image des machines de GitHub ; les paquets Ubuntu et Arch
+  (dépôts signés par leur distribution) ; les dépendances que Gradle tire pour l'APK (Google
+  Maven, Maven Central, par HTTPS, sans fichier de vérification Gradle). Ce qui tourne dans le job
+  Android ne glisse pas ses fichiers parmi ceux de bureau : le brouillon et AUR ne prennent que
+  les artefacts désignés par les jobs de bureau, et refusent ceux qui ont été remplacés.
 - Ces contrôles vivent dans le dépôt : un compte qui peut écrire peut aussi les modifier, et un
   fichier remplacé après la publication n'est revu qu'à la publication suivante. Il peut aussi
   relancer une version passée d'un workflow (un lancement à la main sur une ancienne étiquette
@@ -110,6 +135,6 @@ n'importe qui, historique compris.
 | Agent | Il touche | Il ne touche pas |
 |---|---|---|
 | Claude | tout, dont `tor_proxy.rs` et la sécurité réseau | les secrets de signature |
-| `ai agent` (opencode), IA locale | l'interface, les tâches cadrées demandées par Gary | `tor_proxy.rs`, les dépendances réseau, la signature, les releases, `.github/workflows/`, `scripts/`, `packaging/` : la CI est le mécanisme de publication |
+| `ai agent` (opencode), IA locale | l'interface, les tâches cadrées demandées par Gary | `tor_proxy.rs`, les dépendances réseau, la signature, les releases, `releases/latest.json`, `.github/workflows/`, `scripts/`, `packaging/` : la CI est le mécanisme de publication |
 
 Ce qui touche Tor, le proxy ou l'anonymat s'arrête et s'écrit au journal « à confier à Claude ».

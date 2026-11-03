@@ -1,6 +1,8 @@
-# Les comptes GitHub qui joignent l'APK signé à une release et qui la publient.
-# scripts/latest-json.py refuse un APK déposé par un autre compte ; latest-json.yml n'écrit
-# latest.json que pour une publication ou une relance par l'un d'eux (la liste de master).
+# Les comptes GitHub qui poussent l'étiquette, joignent l'APK signé à la release et la publient.
+# release.yml ne prépare un brouillon que pour une étiquette poussée par l'un d'eux ;
+# scripts/latest-json.py refuse un APK déposé par un autre compte (la liste de l'étiquette) ;
+# latest-json.yml n'écrit une release dans latest.json que pour une publication ou une relance
+# par l'un d'eux (la liste de master).
 # Un login par ligne.
 garybourbier
 Pierroons

@@ -1,7 +1,8 @@
 # Maintainer: Pierroons
 #
 # Gabarit : packaging/aur/remplir.sh y écrit le numéro et les sommes des deux .deb de la release.
-# Le PKGBUILD rempli est un artefact du workflow « Build & Release » (artefact « aur »).
+# Le PKGBUILD rempli est l'artefact « aur-<numéro du run> » du workflow « Build & Release » ;
+# celui qu'on pousse vient du run de l'étiquette (AGENTS.md, « Construire »).
 pkgname=rn2c-bin
 pkgver=@PKGVER@
 pkgrel=1
